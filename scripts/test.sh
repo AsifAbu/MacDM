@@ -6,12 +6,13 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-# A running MacDM clashes with the copy the tests start and makes them hang.
-if pgrep -x MacDM >/dev/null; then
+mode="${1:-all}"
+
+# A running MacDM clashes with the copy the app tests start and makes them hang.
+# (The extension tests don't care.)
+if [[ "$mode" != "--extensions-only" ]] && pgrep -x MacDM >/dev/null; then
   echo "✖ MacDM is running. Quit it first (menu bar icon or Dock ▸ Quit), then run the tests again."; exit 2
 fi
-
-mode="${1:-all}"
 failed=0
 
 if [[ "$mode" != "--app-only" ]]; then

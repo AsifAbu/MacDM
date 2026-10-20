@@ -265,14 +265,18 @@ enum MediaExtractor {
             if let n = f["filesize_approx"] as? NSNumber { return n.int64Value }
             return nil
         }
-        func hasVideo(_ f: [String: Any]) -> Bool { (f["vcodec"] as? String ?? "none") != "none" }
-        func hasAudio(_ f: [String: Any]) -> Bool { (f["acodec"] as? String ?? "none") != "none" }
+        // Many sites do not say which codecs a format uses. A missing value means "unknown", so it is
+        // treated as present; only an explicit "none" means the stream is absent.
+        func hasVideo(_ f: [String: Any]) -> Bool { (f["vcodec"] as? String) != "none" }
+        func hasAudio(_ f: [String: Any]) -> Bool { (f["acodec"] as? String) != "none" }
+        /// A stream that is known to be audio only.
+        func isAudioOnly(_ f: [String: Any]) -> Bool { (f["vcodec"] as? String) == "none" && hasAudio(f) }
 
         // Without ffmpeg only pre-merged (video+audio) formats are usable.
         let videoFormats = formats.filter { f in
             hasVideo(f) && (f["height"] as? Int) != nil && (canMerge || hasAudio(f))
         }
-        let bestAudioSize = formats.filter { hasAudio($0) && !hasVideo($0) }.compactMap(size).max() ?? 0
+        let bestAudioSize = formats.filter(isAudioOnly).compactMap(size).max() ?? 0
 
         var options: [MediaFormatOption] = []
         let heights = Set(videoFormats.compactMap { $0["height"] as? Int }).sorted(by: >)
@@ -287,15 +291,22 @@ enum MediaExtractor {
 
         let hasVideoOptions = !options.isEmpty
 
-        if formats.contains(where: { hasAudio($0) }) {
+        // "Audio only" needs a real audio-only stream; a source of ready-made video files has none.
+        if formats.contains(where: isAudioOnly) {
             let audioSize = bestAudioSize > 0 ? bestAudioSize : nil
             options.append(MediaFormatOption(label: "Audio only", selector: "ba[ext=m4a]/ba/b", sizeBytes: audioSize, audioOnly: true))
         }
 
-        // Single-file sources (direct links, some HLS) may expose no height info:
+        // Sources that expose no sizes (direct links, some HLS, sites that don't describe their formats):
         // offer "Best available" first so the video itself can still be downloaded.
-        if !hasVideoOptions && (formats.isEmpty || formats.contains(where: { hasVideo($0) })) {
+        // The one exception is a source that is audio only.
+        let isAudioOnlySource = !formats.isEmpty && formats.allSatisfy { !hasVideo($0) }
+        if !hasVideoOptions && !isAudioOnlySource {
             options.insert(MediaFormatOption(label: "Best available", selector: "b/bv*+ba", sizeBytes: nil, audioOnly: false), at: 0)
+        }
+        // Never show an empty list: the user can always try the best version yt-dlp can find.
+        if options.isEmpty {
+            options.append(MediaFormatOption(label: "Best available", selector: "b/bv*+ba", sizeBytes: nil, audioOnly: false))
         }
         return MediaInfo(title: title, thumbnail: thumbnail, duration: duration, options: options)
     }

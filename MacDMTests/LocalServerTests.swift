@@ -206,12 +206,51 @@ struct MediaOptionsTests {
         #expect(info.options[0].selector == "b[height<=360]/b")
     }
 
-    @Test("a video with no height information still offers Best available, ahead of Audio only")
+    @Test("a video with no height information offers Best available (and no Audio only: it has no separate audio stream)")
     func bestAvailableFallback() {
         let info = MediaExtractor.buildInfo(from: ["title": "x", "formats": [format(video: true, audio: true)]], canMerge: true)
-        #expect(info.options.map(\.label) == ["Best available", "Audio only"])
+        #expect(info.options.map(\.label) == ["Best available"])
         #expect(info.options[0].selector == "b/bv*+ba")
         #expect(info.options[0].audioOnly == false)
+    }
+
+    /// Formats the way some sites report them: a height, but no codec information at all.
+    private func unknownCodec(height: Int?, size: Int? = nil) -> [String: Any] {
+        var f: [String: Any] = [:]
+        if let height { f["height"] = height }
+        if let size { f["filesize"] = size }
+        return f
+    }
+
+    @Test("sizes are listed even when the site does not say which codecs are used", arguments: [true, false])
+    func unknownCodecsKeepTheirSizes(canMerge: Bool) {
+        let json: [String: Any] = ["title": "x", "formats": [
+            unknownCodec(height: 360), unknownCodec(height: 480), unknownCodec(height: 720), unknownCodec(height: 1080)
+        ]]
+        let info = MediaExtractor.buildInfo(from: json, canMerge: canMerge)
+        #expect(info.options.map(\.label) == ["1080p", "720p", "480p", "360p"])
+        #expect(!info.options.contains { $0.audioOnly }, "no audio-only stream exists")
+    }
+
+    @Test("a source with unknown codecs and no heights offers Best available, never an empty list")
+    func unknownCodecsNoHeights() {
+        let info = MediaExtractor.buildInfo(from: ["title": "x", "formats": [unknownCodec(height: nil), unknownCodec(height: nil)]], canMerge: true)
+        #expect(info.options.map(\.label) == ["Best available"])
+    }
+
+    @Test("the list is never empty for any kind of source", arguments: [
+        [[String: Any]](),
+        [["height": 720]],
+        [["vcodec": "avc1", "acodec": "mp4a"]],
+        [["vcodec": "avc1", "acodec": "none", "height": 480]],
+        [["vcodec": "none", "acodec": "mp4a"]],
+        [["vcodec": "none", "acodec": "none"]]
+    ])
+    func neverEmpty(formats: [[String: Any]]) {
+        for canMerge in [true, false] {
+            let info = MediaExtractor.buildInfo(from: ["title": "x", "formats": formats], canMerge: canMerge)
+            #expect(!info.options.isEmpty, "no choices for \(formats) (ffmpeg: \(canMerge))")
+        }
     }
 
     @Test("an audio-only source offers just Audio only")
