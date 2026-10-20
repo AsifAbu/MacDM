@@ -6,11 +6,18 @@ can take over downloads from your browser.
 
 ## Download
 
-**[⬇ Download MacDM for Mac](https://github.com/AsifAbu/MacDM/releases/latest/download/MacDM.dmg)**
-(or see all versions on the [Releases page](https://github.com/AsifAbu/MacDM/releases))
+<p align="center">
+  <a href="https://github.com/AsifAbu/MacDM/releases/latest/download/MacDM.dmg">
+    <img alt="Download MacDM for Mac" src="https://img.shields.io/badge/%E2%AC%87%20Download-MacDM.dmg-0A84FF?style=for-the-badge&logo=apple&logoColor=white">
+  </a>
+</p>
 
-Requires a Mac with **Apple silicon** (M1 or newer) running **macOS 14 or later**. About 72 MB; it includes
-everything it needs, so there is nothing else to install.
+Clicking the button downloads **MacDM.dmg** straight away (about 72 MB). If the button doesn't show, use this link:
+[**MacDM.dmg**](https://github.com/AsifAbu/MacDM/releases/latest/download/MacDM.dmg), or see all versions on the
+[Releases page](https://github.com/AsifAbu/MacDM/releases).
+
+Requires a Mac with **Apple silicon** (M1 or newer) running **macOS 14 or later**. It includes everything it needs,
+so there is nothing else to install.
 
 ## Install
 
