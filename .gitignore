@@ -1,0 +1,31 @@
+# Xcode / macOS
+.DS_Store
+xcuserdata/
+DerivedData/
+build/
+*.xcresult
+
+# Partial downloads and download folders created while running the app from the project folder
+*.idmpart
+*.idmmeta
+
+# Test tooling
+tests/node_modules/
+
+# Release output
+dist/
+
+# Category folders created when downloads are saved into the project folder while developing
+# (the default download folder, ~/Downloads/MacDM, is the same as this project folder on the dev machine)
+/Video/
+/Other/
+/Compressed/
+/Documents/
+/Music/
+/Programs/
+
+# Third-party tools fetched by scripts/fetch-tools.sh (large, re-creatable)
+vendor/
+
+# Backups of earlier release builds
+dist-archive/

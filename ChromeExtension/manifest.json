@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "MacDM",
+  "description": "Send downloads and videos from Chrome to MacDM.",
+  "version": "1.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAt3/IHra+58ts8lGTHMYhf5En0yiwt0OKwO2EUcjkEtWN/aYcrBLXZcEu+c3YiG+ISCR6er3pwW96khUIqtfrNWAsEAFuHuOAZOqE9xrEFX+PsLhm746yDrDiDnjuHCc504HiUY71u7atH+nNtDNBwnX/L0bRtfOFvd7f6UkV0u2urRXzMXOK9m26SKDuUIlXpoI6Sa9/0Fqy/kCSyLwmqZ5FE8CbkpgZ61O4I2dabXSsVqbh4bmbxJNutq5DhB2t4ESWKm7Tq9MpP/ppCxZNBWhdZGhhblRT/6X9/LePC4GByRfPrpX2S2oNrE6y3WhTwWKnccHxpLE7oRpBzM/pGwIDAQAB",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "MacDM",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": [
+    "downloads",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*"
+  ]
+}

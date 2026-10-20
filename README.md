@@ -1,0 +1,103 @@
+# MacDM
+
+A fast download manager for Mac. It splits big downloads into parts to finish sooner, resumes after a pause or a
+restart, and downloads videos from web pages with a choice of quality. It lives in your menu bar and Dock, and it
+can take over downloads from your browser.
+
+## Download
+
+**[⬇ Download MacDM for Mac](https://github.com/AsifAbu/MacDM/releases/latest/download/MacDM.dmg)**
+(or see all versions on the [Releases page](https://github.com/AsifAbu/MacDM/releases))
+
+Requires a Mac with **Apple silicon** (M1 or newer) running **macOS 14 or later**. About 72 MB; it includes
+everything it needs, so there is nothing else to install.
+
+## Install
+
+1. Open **MacDM.dmg**.
+2. Drag **MacDM** onto the **Applications** folder in the window.
+3. **Eject the disk image** (the eject button next to it in the Finder sidebar).
+4. Open **MacDM** from Applications.
+
+**The first time, macOS may say it can't verify the app.** MacDM is not yet signed with a paid Apple Developer ID.
+This is a one-time step:
+
+1. Open **System Settings → Privacy & Security**.
+2. Scroll down and click **Open Anyway** next to MacDM, then confirm.
+
+## Using MacDM
+
+- MacDM starts quietly. Click its icon in the Dock or in the menu bar, then **Open MacDM**.
+- **Add URL** downloads a link. **Site Grabber** lists the files on a web page. Copy a download link and MacDM
+  offers to download it.
+- Downloads are saved in a **MacDM** folder inside your Downloads folder, sorted into Video, Music, Documents and
+  so on. Change this in **MacDM → Settings (Cmd+,) → General → Download location → Browse…**.
+- The **✕** on a row cancels a running download. On a finished one it removes the entry from the list; the file stays.
+- Closing the window keeps MacDM running so it can catch downloads from your browser. **Cmd+Q** quits it.
+
+## Videos
+
+Open a page with a video in a browser that has the MacDM extension, and a **Download this video** bar appears on the
+video. Click it, choose a quality, and MacDM does the rest. The bar has a small **✕** to hide it and can be dragged
+anywhere. Without the extension, paste the page address into **Add URL**.
+
+MacDM includes the video tools it needs ([yt-dlp](https://github.com/yt-dlp/yt-dlp) and
+[FFmpeg](https://ffmpeg.org)) and keeps yt-dlp up to date, because video sites change often. You can turn that off
+in **Settings → Browser**.
+
+## Browser extensions
+
+### Chrome
+
+1. In MacDM, open **Settings → Browser → Show Extension Folder**.
+2. In Chrome, go to `chrome://extensions` and turn on **Developer mode** (top right).
+3. Click **Load unpacked** and choose the folder that opened (it is
+   `~/Library/Application Support/MacDM/ChromeExtension`).
+
+After you update MacDM, press the reload arrow on the extension in Chrome once. Keep MacDM running while you browse.
+
+### Safari
+
+**Not available yet.** Safari only accepts extensions signed with an Apple certificate, and this release is not
+signed with one. It will work in a signed release. Until then, use Chrome or **Add URL**. Details are in
+[docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
+
+## Privacy
+
+- No account, no tracking, no analytics. Your download history and settings stay on your Mac.
+- The browser extensions talk to MacDM only on your own Mac (`127.0.0.1`), never over your network. Web pages and
+  other extensions cannot use it.
+- MacDM contacts github.com only to check for a newer yt-dlp (at most once a day; you can turn it off).
+- Browser cookies are used only if you choose **Use cookies from…** in Settings, for sites that ask you to sign in.
+
+## Uninstall
+
+Open **MacDM → Settings → General → Uninstall MacDM…**. It moves MacDM to the Trash and, if you tick the box,
+removes its history and settings too. Your downloaded files are never deleted. Remove the Chrome extension yourself
+at `chrome://extensions`.
+
+## Troubleshooting
+
+| Problem | What to do |
+|---|---|
+| "MacDM can't be opened" the first time | System Settings → Privacy & Security → **Open Anyway** |
+| MacDM isn't in the Dock after installing | Run `killall Dock` in Terminal |
+| Chrome says `ERR_FILE_NOT_FOUND` for the extension | Remove it, then load the folder shown in Settings → Browser → Show Extension Folder |
+| A video site says "confirm you're not a bot" | Settings → Browser → **Use cookies from** your browser (Safari also needs Full Disk Access) |
+| Several MacDM entries or old copies show up | Eject any leftover MacDM disk images, then run `scripts/clean-macdm-copies.sh --eject` |
+
+More in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
+
+## For developers
+
+Build instructions, the test suite, project layout and the release process are in
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
+## Third-party software
+
+MacDM includes yt-dlp (public domain) and FFmpeg (GPL v3), run as separate programs. See
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for licences and where to get the source.
+
+## Licence
+
+No licence has been chosen for MacDM's own code yet, so all rights are reserved by the author for now.

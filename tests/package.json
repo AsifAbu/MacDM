@@ -1,0 +1,11 @@
+{
+  "name": "macdm-extension-tests",
+  "private": true,
+  "description": "Regression tests for the MacDM Chrome and Safari extensions",
+  "scripts": {
+    "test": "node --test \"extension/*.test.js\""
+  },
+  "devDependencies": {
+    "jsdom": "^26.0.0"
+  }
+}

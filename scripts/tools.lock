@@ -1,0 +1,18 @@
+# Third-party programs that ship inside MacDM.app (Contents/Helpers).
+# Pinned on purpose: a build always uses exactly these files, and fetch-tools.sh
+# refuses anything whose checksum differs. To upgrade, change the version, URL
+# and checksums here, then run scripts/test.sh.
+
+# yt-dlp (public domain) - https://github.com/yt-dlp/yt-dlp
+# This is the multi-file ("onedir") build: it starts in about a quarter of a second.
+# The single-file build unpacks itself on every run, which took about 9 seconds each time.
+YTDLP_VERSION=2026.08.19
+YTDLP_ZIP_URL=https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_macos.zip
+YTDLP_ZIP_SHA256=07e54b0865303c864006925913bce2604f8ee8cc6f18699bac9c309f9328a6d8
+
+# ffmpeg, static Apple Silicon build (GPL v3) - https://ffmpeg.martin-riedl.de
+# Source code: https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
+FFMPEG_VERSION=9.0.2
+FFMPEG_ZIP_URL=https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip
+FFMPEG_ZIP_SHA256=c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924
+FFMPEG_SHA256=2e11c6f90993cdb79fff84d3f90044d28316b310e75b3e030cfc9a54f2c9d384
