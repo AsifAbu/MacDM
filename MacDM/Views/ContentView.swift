@@ -31,11 +31,24 @@ struct ContentView: View {
                 if filteredTasks.isEmpty {
                     EmptyStateView(showAddSheet: $showAddSheet)
                 } else {
-                    List(filteredTasks, selection: $selectedTask) { task in
-                        DownloadRowView(task: task)
-                            .tag(task)
+                    // A plain scrolling stack rather than List: List's table measures a new row once, while it is
+                    // still short, and keeps that height when the progress bar appears (the row showed half).
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(filteredTasks) { task in
+                                DownloadRowView(task: task)
+                                    .padding(.horizontal, 12)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .fill(selectedTask == task ? Color.accentColor.opacity(0.18) : Color.clear)
+                                    )
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { selectedTask = task }
+                                Divider().padding(.leading, 56)
+                            }
+                        }
+                        .padding(.horizontal, 6)
                     }
-                    .listStyle(.inset)
                 }
             }
         }

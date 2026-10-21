@@ -47,9 +47,6 @@ struct DownloadRowView: View {
 
             controlButtons
         }
-        // Tall enough for every state (title, status, progress bar). The list measures a new row once, while it is
-        // still "Queued"; a row that grows afterwards, when the progress bar appears, would stay clipped.
-        .frame(minHeight: 60, alignment: .center)
         .padding(.vertical, 6)
         .contextMenu {
             Button("Show in Finder") { revealInFinder() }
