@@ -463,3 +463,120 @@ struct StreamTests {
         #expect(summary == nil)
     }
 }
+
+// MARK: - The browser's sign-in, handed over by the extension
+
+@Suite("Sign-in from the browser extension")
+struct SignInTests {
+    private func raw(_ over: [String: Any] = [:]) -> [String: Any] {
+        var cookie: [String: Any] = ["domain": ".youtube.com", "path": "/", "name": "SID", "value": "abc123",
+                                     "secure": true, "httpOnly": true, "expires": 1_900_000_000]
+        for (key, value) in over { cookie[key] = value }
+        return cookie
+    }
+
+    @Test("a well-formed cookie is kept with all its fields")
+    func keepsGood() {
+        let cookies = RequestSecurity.safeCookies([raw()])
+        #expect(cookies == [BrowserCookie(domain: ".youtube.com", path: "/", secure: true, httpOnly: true,
+                                          expires: 1_900_000_000, name: "SID", value: "abc123")])
+    }
+
+    @Test("a cookie that could add lines or fields to the cookie file is dropped")
+    func dropsInjection() {
+        let bad: [[String: Any]] = [
+            raw(["value": "a\tb"]), raw(["value": "a\nb"]), raw(["value": "a\rb"]),
+            raw(["name": "x\ty"]), raw(["name": "a=b"]), raw(["name": ""]),
+            raw(["domain": "evil.test\tTRUE"]), raw(["domain": "a b.test"]), raw(["domain": "x.test/path"]),
+            raw(["path": "no-slash"]), raw(["path": "/a\nb"]),
+            raw(["value": String(repeating: "x", count: 5000)])
+        ]
+        #expect(RequestSecurity.safeCookies(bad).isEmpty)
+        #expect(RequestSecurity.safeCookies([raw(["value": "ok"])] + bad).count == 1, "good ones survive next to bad ones")
+    }
+
+    @Test("an empty value is allowed, and anything that is not a list gives nothing")
+    func edgeCases() {
+        #expect(RequestSecurity.safeCookies([raw(["value": ""])]).count == 1)
+        #expect(RequestSecurity.safeCookies(nil).isEmpty)
+        #expect(RequestSecurity.safeCookies("cookies").isEmpty)
+        #expect(RequestSecurity.safeCookies(["not", "dictionaries"]).isEmpty)
+    }
+
+    @Test("at most 400 cookies are accepted")
+    func capped() {
+        let many = (0..<700).map { raw(["name": "c\($0)"]) }
+        #expect(RequestSecurity.safeCookies(many).count == RequestSecurity.maxCookies)
+    }
+
+    @Test("the cookie file is in the format yt-dlp reads: header, tab-separated fields, HttpOnly marker")
+    func netscapeFormat() {
+        let text = CookieFile.text(for: [
+            BrowserCookie(domain: ".youtube.com", path: "/", secure: true, httpOnly: true, expires: 1_900_000_000, name: "SID", value: "abc"),
+            BrowserCookie(domain: "site.test", path: "/a", secure: false, httpOnly: false, expires: 0, name: "lang", value: "en")
+        ])
+        let lines = text.split(separator: "\n").map(String.init)
+        #expect(lines[0] == "# Netscape HTTP Cookie File")
+        #expect(lines[1] == "#HttpOnly_.youtube.com\tTRUE\t/\tTRUE\t1900000000\tSID\tabc")
+        #expect(lines[2] == "site.test\tFALSE\t/a\tFALSE\t0\tlang\ten")
+        #expect(text.hasSuffix("\n"))
+    }
+
+    @Test("the cookie file can be read only by its owner")
+    func privateFile() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("MacDMCookies-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("cookies.txt")
+        try CookieFile.write([BrowserCookie(domain: "a.test", path: "/", secure: false, httpOnly: false, expires: 0, name: "n", value: "v")], to: file)
+        let mode = (try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber)?.intValue
+        #expect(mode == 0o600)
+    }
+
+    @Test("a lookup result is stored without anything that carries a sign-in")
+    func scrubsInfo() throws {
+        let info: [String: Any] = [
+            "title": "T", "cookies": "SID=abc",
+            "formats": [["height": 720, "http_headers": ["User-Agent": "UA", "Cookie": "SID=abc", "Authorization": "Bearer x"], "cookies": "x=y"]]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: info)
+        let cleaned = try #require(JSONSerialization.jsonObject(with: MediaInfoCache.scrubbed(data)) as? [String: Any])
+        #expect(cleaned["title"] as? String == "T")
+        #expect(cleaned["cookies"] == nil)
+        let format = try #require((cleaned["formats"] as? [[String: Any]])?.first)
+        #expect(format["height"] as? Int == 720 && format["cookies"] == nil)
+        let headers = try #require(format["http_headers"] as? [String: String])
+        #expect(headers == ["User-Agent": "UA"])
+        #expect(MediaInfoCache.scrubbed(Data("not json".utf8)) == Data("not json".utf8))
+    }
+
+    @Test("a video download keeps the sign-in in its own private file, not in the saved list, and cancel deletes it")
+    func downloadKeepsItPrivate() throws {
+        let env = IsolatedManager()
+        defer { env.cleanUp() }
+        env.manager.maxConcurrentDownloads = 0          // queue it without starting yt-dlp
+        let secret = "SECRET-SESSION-VALUE-123"
+        let task = env.manager.addMediaDownload(
+            pageURL: URL(string: "https://www.youtube.com/watch?v=1")!, title: "Clip", formatSelector: "b", audioOnly: false,
+            referer: nil, cookies: [BrowserCookie(domain: ".youtube.com", path: "/", secure: true, httpOnly: true, expires: 0, name: "SID", value: secret)])
+
+        let file = try #require(task.workFolder).appendingPathComponent(CookieFile.fileName)
+        #expect(FileManager.default.fileExists(atPath: file.path))
+        #expect(try String(contentsOf: file, encoding: .utf8).contains(secret))
+        #expect(CookieFile.arguments(for: task) == ["--cookies", file.path])
+
+        let saved = try String(contentsOf: env.directory.appendingPathComponent("tasks.json"), encoding: .utf8)
+        #expect(!saved.contains(secret), "the sign-in is never written to the task list")
+
+        env.manager.cancel(task)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        #expect(CookieFile.arguments(for: task).isEmpty)
+    }
+
+    @Test("a download without a sign-in, or from an older version, adds no cookie arguments")
+    func noCookiesNoArguments() {
+        let plain = DownloadTask(url: URL(string: "https://example.test/a")!, fileName: "a", destinationFolder: FileManager.default.temporaryDirectory)
+        #expect(CookieFile.arguments(for: plain).isEmpty)
+        plain.workFolder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        #expect(CookieFile.arguments(for: plain).isEmpty)
+    }
+}

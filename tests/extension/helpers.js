@@ -36,7 +36,7 @@ function loadBackground({ reply = { ok: true }, script = "ChromeExtension/backgr
         }
       }
     },
-    cookies: { getAll: async (query) => { calls.cookieQueries.push(query.url); return cookies; } },
+    cookies: { getAll: async (query) => { calls.cookieQueries.push(query.url); if (cookies === "fail") throw new Error("no permission"); return cookies; } },
     storage: {
       session: {
         get: async (key) => (key in session ? { [key]: JSON.parse(JSON.stringify(session[key])) } : {}),

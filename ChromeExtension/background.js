@@ -196,10 +196,57 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "native") {
-    sendToMacDM(message.payload).then(sendResponse);
+    const payload = message.payload || {};
+    // Looking up a page's qualities and downloading a video use the sign-in of the page you are on, the way
+    // your browser does, so sites that check it (YouTube's bot check) accept the request.
+    const needsSignIn = payload.action === "formats" || payload.action === "download_media";
+    const ready = needsSignIn
+      ? pageCookies(payload.url).then((cookies) => (cookies.length ? { ...payload, cookies } : payload))
+      : Promise.resolve(payload);
+    ready.then(sendToMacDM).then(sendResponse);
     return true;
   }
 });
+
+// ---------- the page's sign-in ----------
+
+const MAX_COOKIES = 400;
+
+/**
+ * The cookies your browser would send to this address, for one lookup or download. They go to MacDM over the
+ * local connection only; MacDM keeps them in a private temporary file and deletes it afterwards.
+ */
+async function pageCookies(pageUrl) {
+  let addresses;
+  try {
+    const parsed = new URL(pageUrl);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return [];
+    addresses = [parsed.href];
+    // YouTube checks the Google sign-in as well.
+    if (/(^|\.)youtube\.com$/i.test(parsed.hostname)) addresses.push("https://www.google.com/", "https://accounts.google.com/");
+  } catch (_) {
+    return [];
+  }
+  const found = new Map();
+  for (const address of addresses) {
+    try {
+      for (const cookie of await chrome.cookies.getAll({ url: address })) {
+        found.set(`${cookie.domain}|${cookie.path}|${cookie.name}`, cookie);
+      }
+    } catch (_) {
+      // no cookie access: MacDM still tries without a sign-in
+    }
+  }
+  return [...found.values()].slice(0, MAX_COOKIES).map((cookie) => ({
+    domain: cookie.domain,
+    path: cookie.path,
+    secure: !!cookie.secure,
+    httpOnly: !!cookie.httpOnly,
+    expires: cookie.expirationDate ? Math.floor(cookie.expirationDate) : 0,
+    name: cookie.name,
+    value: cookie.value
+  }));
+}
 
 // ---------- grabbing all the files on a page ----------
 
