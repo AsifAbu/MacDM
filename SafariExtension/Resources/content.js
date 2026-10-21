@@ -24,6 +24,7 @@
   let requestToken = 0;
   let lastFormatsURL = null;
   let lastFormats = null;
+  let lastFormatsFailure = null;   // why the page address couldn't be read, kept so a redraw doesn't lose it
   let barDismissed = false; // user removed the bar with its x button
   const barOffset = { x: 0, y: 0 };   // user drag offsets
   const panelOffset = { x: 0, y: 0 };
@@ -49,7 +50,7 @@
         canGrab = grabAvailable;
         if (changed) {
           updatePosition();
-          if (panelOpen) render({ formats: lastFormats });
+          if (panelOpen) render({ formats: currentFormats() });
         }
       })
       .catch(() => {});
@@ -286,6 +287,9 @@
       if (reply.ok) {
         lastFormatsURL = location.href;
         lastFormats = reply;
+        lastFormatsFailure = null;
+      } else {
+        lastFormatsFailure = reply;
       }
       render({ formats: reply });
     });
@@ -342,6 +346,32 @@
     return [...byUrl.values()].reverse();
   }
 
+  // What each detected stream is (sharpness, length, rough size), read by MacDM from its playlist.
+  const streamInfo = new Map();   // url -> reply, or "loading"
+
+  function currentFormats() { return lastFormats || lastFormatsFailure; }
+
+  function lookUpStream(item) {
+    if (item.kind !== "hls" || streamInfo.has(item.url)) return;
+    streamInfo.set(item.url, "loading");
+    native({ action: "stream_info", url: item.url, headers: { Referer: location.href, ...(item.headers || {}) } })
+      .then((reply) => {
+        streamInfo.set(item.url, reply);
+        if (panelOpen) render({ formats: currentFormats() });
+      });
+  }
+
+  function streamDetail(item) {
+    const info = streamInfo.get(item.url);
+    const known = info && info !== "loading" && info.ok ? info : null;
+    return [
+      item.kind === "hls" ? "HLS stream" : item.kind === "dash" ? "DASH stream" : "",
+      known && known.height ? `${known.height}p` : "",
+      known && known.duration ? formatDuration(known.duration) : "",
+      formatBytes(item.size) || (known && known.sizeBytes ? `~${formatBytes(known.sizeBytes)}` : "")
+    ].filter(Boolean).join(" · ");
+  }
+
   function displayName(item) {
     try {
       return decodeURIComponent(item.url.split("?")[0].split("/").pop() || item.url);
@@ -387,17 +417,22 @@
           referer: location.href
         })));
       }
-    } else if (formats && !formats.ok) {
-      panel.appendChild(el("div", { color: "#f28b82", padding: "4px 0", lineHeight: "1.4" }, formats.error || "Could not read this page."));
     }
 
     const direct = allFinds();
+    if (formats && !formats.ok) {
+      // The page address itself can't be read (an embedded player, for example). If the network showed
+      // media, that is the way to download, so this is a note rather than a red error.
+      panel.appendChild(direct.length > 0
+        ? el("div", { color: "#9aa0a6", padding: "4px 0", lineHeight: "1.4", fontSize: "12px" }, "Quality choices aren't available for this page. Download what was detected below.")
+        : el("div", { color: "#f28b82", padding: "4px 0", lineHeight: "1.4" }, formats.error || "Could not read this page."));
+    }
     if (direct.length > 0) {
       panel.appendChild(sectionTitle("Detected media on this page"));
       for (const item of direct.slice(0, 8)) {
         const name = displayName(item);
-        const detail = [item.kind === "hls" ? "HLS stream" : item.kind === "dash" ? "DASH stream" : "", formatBytes(item.size)]
-          .filter(Boolean).join(" · ");
+        lookUpStream(item);
+        const detail = streamDetail(item);
         panel.appendChild(actionRow(name, detail, () => downloadFind(item, name)));
       }
     }
@@ -425,6 +460,7 @@
         .then((reply) => {
           button.textContent = reply.ok ? "Opened in MacDM ✓" : "Failed";
           button.title = reply.ok ? "" : (reply.error || "");
+          if (!reply.ok && reply.error) wrap.appendChild(el("div", { color: "#f28b82", fontSize: "12px", marginTop: "6px", lineHeight: "1.4" }, reply.error));
           if (!reply.ok) { button.disabled = false; button.style.borderColor = "#d93025"; }
         });
     });
@@ -444,7 +480,7 @@
     if (/(^|\.)youtube\.com$/.test(location.hostname)) return;
     if (sniffed.has(url)) return;
     sniffed.set(url, { url, stream: STREAM_RE.test(url) });
-    if (panelOpen) render({ formats: lastFormats });
+    if (panelOpen) render({ formats: currentFormats() });
     updatePosition();
   }
 

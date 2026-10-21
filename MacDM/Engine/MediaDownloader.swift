@@ -388,7 +388,7 @@ final class MediaDownloadJob {
             "-f", selector,
             "-N", String(max(1, concurrentFragments)),
             "-P", task.destinationFolder.path,
-            "-o", "%(title).150B\(Self.qualitySuffix(for: selector)).%(ext)s"
+            "-o", Self.outputTemplate(for: task, selector: selector)
         ]
         args += MediaTools.cookieArguments
         if selector.contains("+") { args += ["--merge-output-format", "mp4"] }
@@ -488,7 +488,7 @@ final class MediaDownloadJob {
 
     /// Filename suffix like " [1080p]" so different qualities of one video don't
     /// share a filename (yt-dlp would skip the download as "already downloaded").
-    private static func qualitySuffix(for selector: String) -> String {
+    fileprivate static func qualitySuffix(for selector: String) -> String {
         if let range = selector.range(of: "height<=") {
             let digits = selector[range.upperBound...].prefix { $0.isNumber }
             if !digits.isEmpty { return " [\(digits)p]" }
@@ -547,5 +547,113 @@ final class MediaDownloadJob {
         task.errorMessage = error.localizedDescription
         task.speedBytesPerSec = 0
         onFinished?(.failure(error))
+    }
+}
+
+// MARK: - Naming and describing detected streams
+
+extension MediaDownloadJob {
+    /// The yt-dlp output template. A bare stream address (playlist.m3u8) has no real title of its own, so yt-dlp
+    /// would call the file "video" or "playlist"; for those the name the page gave is used instead.
+    static func outputTemplate(for task: DownloadTask, selector: String) -> String {
+        let suffix = qualitySuffix(for: selector)
+        let isBareStream = ["m3u8", "mpd"].contains(task.url.pathExtension.lowercased())
+        let stem = (task.fileName as NSString).deletingPathExtension
+        if isBareStream, !stem.isEmpty, stem != "video" {
+            // "%" starts a yt-dlp template field, so a literal one is doubled.
+            let literal = String(stem.prefix(120)).replacingOccurrences(of: "%", with: "%%")
+            return "\(literal)\(suffix).%(ext)s"
+        }
+        return "%(title).150B\(suffix).%(ext)s"
+    }
+}
+
+/// What a detected HLS stream is, read from its playlist: how sharp, how long and roughly how big.
+struct StreamSummary: Equatable {
+    var width: Int?
+    var height: Int?
+    var duration: Double?
+    var bandwidth: Int64?        // bits per second of the best version
+
+    var estimatedBytes: Int64? {
+        guard let duration, let bandwidth, duration > 0 else { return nil }
+        return Int64(duration * Double(bandwidth) / 8)
+    }
+}
+
+enum StreamInspector {
+    struct Variant: Equatable {
+        var url: URL
+        var width: Int?
+        var height: Int?
+        var bandwidth: Int64?
+    }
+
+    /// The sharpest version listed in a master playlist, or nil when the text is a plain (media) playlist.
+    static func bestVariant(inMaster text: String, base: URL) -> Variant? {
+        var best: Variant?
+        var pending: [String: String]?
+        for rawLine in text.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("#EXT-X-STREAM-INF:") {
+                pending = attributes(of: String(line.dropFirst("#EXT-X-STREAM-INF:".count)))
+            } else if let attrs = pending, !line.isEmpty, !line.hasPrefix("#") {
+                pending = nil
+                guard let url = URL(string: line, relativeTo: base)?.absoluteURL else { continue }
+                var variant = Variant(url: url, bandwidth: (attrs["BANDWIDTH"] ?? attrs["AVERAGE-BANDWIDTH"]).flatMap { Int64($0) })
+                if let size = attrs["RESOLUTION"]?.lowercased().split(separator: "x"), size.count == 2 {
+                    variant.width = Int(size[0]); variant.height = Int(size[1])
+                }
+                if best == nil || (variant.height ?? 0, variant.bandwidth ?? 0) > (best?.height ?? 0, best?.bandwidth ?? 0) {
+                    best = variant
+                }
+            }
+        }
+        return best
+    }
+
+    /// Total playing time of a media playlist (the sum of its #EXTINF pieces).
+    static func totalDuration(ofMedia text: String) -> Double? {
+        var total = 0.0
+        for rawLine in text.split(whereSeparator: \.isNewline) where rawLine.hasPrefix("#EXTINF:") {
+            let value = rawLine.dropFirst("#EXTINF:".count).split(separator: ",").first.map(String.init) ?? ""
+            total += Double(value.trimmingCharacters(in: .whitespaces)) ?? 0
+        }
+        return total > 0 ? total : nil
+    }
+
+    /// Splits `BANDWIDTH=800000,RESOLUTION=1280x720,CODECS="a,b"` into a dictionary, respecting quotes.
+    static func attributes(of text: String) -> [String: String] {
+        var result: [String: String] = [:]
+        var key = "", value = "", inKey = true, inQuotes = false
+        func flush() { if !key.isEmpty { result[key.trimmingCharacters(in: .whitespaces)] = value }; key = ""; value = ""; inKey = true }
+        for character in text {
+            if character == "\"" { inQuotes.toggle() }
+            else if character == "=", inKey, !inQuotes { inKey = false }
+            else if character == ",", !inQuotes { flush() }
+            else if inKey { key.append(character) } else { value.append(character) }
+        }
+        flush()
+        return result
+    }
+
+    /// Reads the playlist (and the best version's playlist, for its length). Nil when it can't be read.
+    static func summary(of url: URL, headers: [String: String], fetch: ((URL) async -> String?)? = nil) async -> StreamSummary? {
+        let load = fetch ?? { await download($0, headers: headers) }
+        guard let text = await load(url), text.contains("#EXTM3U") else { return nil }
+        guard let best = bestVariant(inMaster: text, base: url) else {
+            return StreamSummary(duration: totalDuration(ofMedia: text))
+        }
+        var summary = StreamSummary(width: best.width, height: best.height, bandwidth: best.bandwidth)
+        if let mediaText = await load(best.url) { summary.duration = totalDuration(ofMedia: mediaText) }
+        return summary
+    }
+
+    private static func download(_ url: URL, headers: [String: String]) async -> String? {
+        var request = URLRequest(url: url, timeoutInterval: 10)
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200, data.count < 8_000_000 else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 }

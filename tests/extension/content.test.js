@@ -379,3 +379,50 @@ test("if MacDM can't take the links, the button says Failed and shows why", asyn
   assert.match(grab.title, /No downloadable files/);
   assert.equal(grab.disabled, false, "the user can try again");
 });
+
+// ---------- describing detected streams ----------
+
+test("a detected stream shows its resolution, length and size once MacDM has read its playlist", async () => {
+  const HLS_ITEM = { url: "https://cdn.test/hls/playlist.m3u8", kind: "hls", size: 0, headers: {} };
+  const { downloadButton, panel, sent } = loadPage({
+    withVideo: false, detectedItems: [HLS_ITEM],
+    reply: { ok: true, height: 1080, duration: 5400, sizeBytes: 3e9, options: [] }
+  });
+  await tick();
+  downloadButton.click();
+  await tick();
+  await tick();
+  assert.ok(sent.some((m) => m.payload && m.payload.action === "stream_info" && m.payload.url === HLS_ITEM.url));
+  assert.match(panel.textContent, /HLS stream · 1080p · 1:30:00 · ~2\.8 GB/);
+});
+
+test("a page MacDM can't read is a quiet note, not a red error, when a stream was detected", async () => {
+  const { downloadButton, panel } = loadPage({
+    detectedItems: [{ url: "https://cdn.test/a.m3u8", kind: "hls", size: 0, headers: {} }],
+    reply: { ok: false, error: "Unsupported URL: https://x.test/embed/1" }
+  });
+  await tick();
+  downloadButton.click();
+  await tick();
+  await tick();
+  assert.doesNotMatch(panel.textContent, /Unsupported URL/);
+  assert.match(panel.textContent, /Download what was detected below/);
+});
+
+test("with nothing detected, the page's own error is still shown", async () => {
+  const { downloadButton, panel } = loadPage({ reply: { ok: false, error: "Unsupported URL: https://x.test/e" } });
+  await tick();
+  downloadButton.click();
+  await tick();
+  assert.match(panel.textContent, /Unsupported URL/);
+});
+
+test("a failed Grab says why, in the panel", async () => {
+  const { downloadButton, panel } = loadPage({ withVideo: false, detectedItems: [FILE], canGrab: true, reply: { ok: false, error: "No downloadable files were found on this page." } });
+  await tick();
+  downloadButton.click();
+  await tick();
+  [...panel.querySelectorAll("button")].find((b) => /Grab all files/.test(b.textContent)).click();
+  await tick();
+  assert.match(panel.textContent, /No downloadable files were found/);
+});

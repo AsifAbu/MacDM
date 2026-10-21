@@ -105,6 +105,8 @@ final class NativeMessagingHost {
             handleFormats(message, reply: reply)
         case "download_media":
             handleMediaDownload(message, reply: reply)
+        case "stream_info":
+            handleStreamInfo(message, reply: reply)
         case "grab":
             handleGrab(message, reply: reply)
         default:
@@ -151,6 +153,25 @@ final class NativeMessagingHost {
         let session = GrabSession(pageURL: pageURL, title: title, links: links, headers: RequestSecurity.safeHeaders(message["headers"]))
         Task { @MainActor in SiteGrabberStore.shared.present(session) }
         reply(["ok": true, "count": links.count])
+    }
+
+    /// Resolution, length and rough size of a detected HLS stream, so the browser can show them next to it.
+    private func handleStreamInfo(_ message: [String: Any], reply: @escaping ([String: Any]) -> Void) {
+        guard let url = requireWebURL(message, reply: reply) else { return }
+        let headers = RequestSecurity.safeHeaders(message["headers"]) ?? [:]
+        Task {
+            let summary = await StreamInspector.summary(of: url, headers: headers)
+            var payload: [String: Any] = ["ok": summary != nil]
+            if let summary {
+                if let width = summary.width { payload["width"] = width }
+                if let height = summary.height { payload["height"] = height }
+                if let duration = summary.duration { payload["duration"] = duration }
+                if let bytes = summary.estimatedBytes { payload["sizeBytes"] = bytes }
+            } else {
+                payload["error"] = "Could not read the stream."
+            }
+            await MainActor.run { reply(payload) }
+        }
     }
 
     private func handleFormats(_ message: [String: Any], reply: @escaping ([String: Any]) -> Void) {

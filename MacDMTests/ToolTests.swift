@@ -394,3 +394,72 @@ struct UpdateScheduleTests {
         #expect(d.object(forKey: YtDlpUpdater.lastCheckKey) == nil)
     }
 }
+
+// MARK: - Stream names and summaries
+
+@Suite("Detected streams: names and details")
+struct StreamTests {
+    private func task(url: String, fileName name: String) -> DownloadTask {
+        DownloadTask(url: URL(string: url)!, fileName: name, destinationFolder: FileManager.default.temporaryDirectory)
+    }
+
+    @Test("a bare playlist keeps the name the page gave, instead of yt-dlp's \"video\"")
+    func nameFromPage() {
+        let t = task(url: "https://cdn.test/hls/playlist.m3u8", fileName: "English Sub NKKD-280.mp4")
+        #expect(MediaDownloadJob.outputTemplate(for: t, selector: "b/bv*+ba") == "English Sub NKKD-280.%(ext)s")
+    }
+
+    @Test("a percent sign in the page's name is not read as a yt-dlp field")
+    func percentEscaped() {
+        let t = task(url: "https://cdn.test/a.m3u8", fileName: "100% Real %(title)s.mp4")
+        #expect(MediaDownloadJob.outputTemplate(for: t, selector: "b").hasPrefix("100%% Real %%(title)s"))
+    }
+
+    @Test("a page address still uses yt-dlp's own title, and a quality is added to the name")
+    func pageUsesYtDlpTitle() {
+        let t = task(url: "https://site.test/watch?v=1", fileName: "Whatever - Site.mp4")
+        #expect(MediaDownloadJob.outputTemplate(for: t, selector: "bv*[height<=720]+ba") == "%(title).150B [720p].%(ext)s")
+    }
+
+    @Test("the sharpest version in a master playlist is chosen, with relative addresses resolved")
+    func bestVariant() {
+        let master = """
+        #EXTM3U
+        #EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360,CODECS="avc1.4d401e,mp4a.40.2"
+        360/index.m3u8
+        #EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1280x720
+        720/index.m3u8
+        #EXT-X-STREAM-INF:BANDWIDTH=1400000,RESOLUTION=842x480
+        480/index.m3u8
+        """
+        let best = StreamInspector.bestVariant(inMaster: master, base: URL(string: "https://cdn.test/v/master.m3u8")!)
+        #expect(best?.height == 720)
+        #expect(best?.bandwidth == 2_800_000)
+        #expect(best?.url.absoluteString == "https://cdn.test/v/720/index.m3u8")
+    }
+
+    @Test("a plain playlist has no variants, and its length is the sum of its pieces")
+    func mediaPlaylist() {
+        let media = "#EXTM3U\n#EXTINF:10.0,\na.ts\n#EXTINF:10.5,\nb.ts\n#EXT-X-ENDLIST"
+        #expect(StreamInspector.bestVariant(inMaster: media, base: URL(string: "https://cdn.test/a.m3u8")!) == nil)
+        #expect(StreamInspector.totalDuration(ofMedia: media) == 20.5)
+    }
+
+    @Test("the summary combines the resolution, length and a rough size")
+    func summary() async {
+        let pages = [
+            "https://cdn.test/m.m3u8": "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=8000000,RESOLUTION=1920x1080\nhd.m3u8",
+            "https://cdn.test/hd.m3u8": "#EXTM3U\n#EXTINF:100,\na.ts\n#EXTINF:100,\nb.ts"
+        ]
+        let summary = await StreamInspector.summary(of: URL(string: "https://cdn.test/m.m3u8")!, headers: [:]) { pages[$0.absoluteString] }
+        #expect(summary?.height == 1080)
+        #expect(summary?.duration == 200)
+        #expect(summary?.estimatedBytes == 200_000_000)
+    }
+
+    @Test("something that is not a playlist gives no summary")
+    func notAPlaylist() async {
+        let summary = await StreamInspector.summary(of: URL(string: "https://cdn.test/x")!, headers: [:]) { _ in "<html></html>" }
+        #expect(summary == nil)
+    }
+}
