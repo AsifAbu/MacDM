@@ -451,3 +451,124 @@ struct DownloadEngineTests {
         #expect(try Data(contentsOf: task.finalDestinationURL) == server.expectedBody)
     }
 }
+
+// MARK: - Unfinished files stay out of the download folder
+
+@Suite("Unfinished downloads live in a hidden folder")
+struct WorkFolderTests {
+    /// Every file under `folder` (folders themselves are not listed), as paths relative to it.
+    private func files(under folder: URL) -> [String] {
+        guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey]) else { return [] }
+        return walker.compactMap { ($0 as? URL) }
+            .filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
+            .map { $0.path.replacingOccurrences(of: folder.path + "/", with: "") }
+            .sorted()
+    }
+
+    private func incomplete(_ env: IsolatedManager) -> URL { env.directory.appendingPathComponent("Incomplete") }
+
+    @Test("while a file downloads, the download folder shows nothing; the part file is in the hidden folder")
+    func downloadFolderStaysClean() async {
+        let server = try! TestHTTPServer(.init(bodySize: 4_000_000, chunkSize: 16 * 1024, chunkDelay: 0.05))
+        defer { server.stop() }
+        let env = IsolatedManager()
+        defer { env.cleanUp() }
+
+        let task = env.manager.addDownload(url: server.url, suggestedName: "movie.bin")
+        #expect(await waitUntil { task.downloadedBytes > 200_000 })
+
+        #expect(files(under: env.manager.defaultDownloadFolder).isEmpty)
+        #expect(task.partFileURL.path.hasPrefix(incomplete(env).path))
+        #expect(FileManager.default.fileExists(atPath: task.partFileURL.path))
+        env.manager.cancel(task)
+    }
+
+    @Test("when it finishes, the file is in the download folder and nothing of the download is left anywhere")
+    func nothingLeftAfterCompletion() async throws {
+        let server = try TestHTTPServer(.init(bodySize: 1_500_000, chunkSize: 64 * 1024, chunkDelay: 0.01))
+        defer { server.stop() }
+        let env = IsolatedManager()
+        defer { env.cleanUp() }
+
+        let task = env.manager.addDownload(url: server.url, suggestedName: "done.bin")
+        #expect(await waitUntil(timeout: 30) { task.status == .completed })
+
+        #expect(try Data(contentsOf: task.finalDestinationURL) == server.expectedBody)
+        #expect(files(under: env.manager.defaultDownloadFolder).count == 1)
+        #expect(files(under: incomplete(env)).isEmpty)
+        let leftoverFolders = (try? FileManager.default.contentsOfDirectory(atPath: incomplete(env).path)) ?? []
+        #expect(leftoverFolders.isEmpty)
+    }
+
+    @Test("cancelling an in-progress download deletes its unfinished files for good and nothing else")
+    func cancelDeletesOnlyItsOwnFiles() async throws {
+        let server = try TestHTTPServer(.init(bodySize: 4_000_000, chunkSize: 16 * 1024, chunkDelay: 0.05))
+        defer { server.stop() }
+        let env = IsolatedManager()
+        defer { env.cleanUp() }
+
+        // A finished file already in the download folder, and another unfinished download.
+        let finished = env.manager.defaultDownloadFolder.appendingPathComponent("already-finished.mp4")
+        try Data("keep me".utf8).write(to: finished)
+        let other = env.manager.addDownload(url: server.url, suggestedName: "other.bin")
+        let target = env.manager.addDownload(url: server.url, suggestedName: "target.bin")
+        #expect(await waitUntil { target.downloadedBytes > 100_000 && other.downloadedBytes > 100_000 })
+        let targetWork = try #require(target.workFolder)
+        #expect(FileManager.default.fileExists(atPath: targetWork.path))
+
+        env.manager.cancel(target)
+
+        #expect(!FileManager.default.fileExists(atPath: targetWork.path))
+        #expect(!FileManager.default.fileExists(atPath: target.finalDestinationURL.path))
+        #expect(FileManager.default.fileExists(atPath: finished.path), "a finished file is never touched")
+        #expect(FileManager.default.fileExists(atPath: try #require(other.workFolder).path), "another download is never touched")
+        env.manager.cancel(other)
+    }
+
+    @Test("a download started by an older version: cancel removes only its own part and info files")
+    func olderDownloadCleanedExactly() throws {
+        let env = IsolatedManager()
+        defer { env.cleanUp() }
+        let folder = env.manager.defaultDownloadFolder
+        let task = DownloadTask(url: URL(string: "https://example.test/old.bin")!, fileName: "old.bin", destinationFolder: folder)
+        #expect(task.workFolder == nil)
+        let part = folder.appendingPathComponent("old.bin.idmpart")
+        let meta = folder.appendingPathComponent("old.bin.idmmeta")
+        let finishedSameName = folder.appendingPathComponent("old (1).bin")
+        let unrelated = folder.appendingPathComponent("old.bin.idmpart.keep")
+        for file in [part, meta, finishedSameName, unrelated] { try Data("x".utf8).write(to: file) }
+        task.status = .paused
+        env.manager.tasks.append(task)
+
+        env.manager.cancel(task)
+
+        #expect(!FileManager.default.fileExists(atPath: part.path))
+        #expect(!FileManager.default.fileExists(atPath: meta.path))
+        #expect(FileManager.default.fileExists(atPath: finishedSameName.path))
+        #expect(FileManager.default.fileExists(atPath: unrelated.path))
+    }
+
+    @Test("a work folder whose download no longer exists is cleaned up on launch; a paused download's is kept")
+    func orphansRemovedOnLaunch() async throws {
+        let server = try TestHTTPServer(.init(bodySize: 4_000_000, chunkSize: 16 * 1024, chunkDelay: 0.05))
+        defer { server.stop() }
+        let env = IsolatedManager()
+        defer { env.cleanUp() }
+
+        let paused = env.manager.addDownload(url: server.url, suggestedName: "paused.bin")
+        #expect(await waitUntil { paused.downloadedBytes > 100_000 })
+        env.manager.pause(paused)
+        let pausedWork = try #require(paused.workFolder)
+
+        let orphan = incomplete(env).appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: orphan, withIntermediateDirectories: true)
+        try Data("left over".utf8).write(to: orphan.appendingPathComponent("data.part"))
+
+        let relaunched = env.relaunch()
+
+        #expect(!FileManager.default.fileExists(atPath: orphan.path))
+        #expect(FileManager.default.fileExists(atPath: pausedWork.path), "a paused download can still resume")
+        #expect(relaunched.tasks.first?.workFolder == pausedWork)
+        relaunched.cancel(try #require(relaunched.tasks.first))
+    }
+}

@@ -380,6 +380,10 @@ final class MediaDownloadJob {
             return
         }
 
+        // yt-dlp keeps its unfinished and fragment files in this download's own hidden folder; only the finished
+        // file is placed in the download folder.
+        if let work = task.workFolder { try? FileManager.default.createDirectory(at: work, withIntermediateDirectories: true) }
+
         var args = [
             "--newline", "--no-playlist", "--no-warnings", "--continue", "--progress",
             "--progress-template",
@@ -390,6 +394,7 @@ final class MediaDownloadJob {
             "-P", task.destinationFolder.path,
             "-o", Self.outputTemplate(for: task, selector: selector)
         ]
+        if let work = task.workFolder { args += ["-P", "temp:\(work.path)"] }
         args += MediaTools.cookieArguments
         if selector.contains("+") { args += ["--merge-output-format", "mp4"] }
         if let ffmpeg = MediaTools.find("ffmpeg") {
@@ -500,10 +505,19 @@ final class MediaDownloadJob {
     /// Stops the process and sets the task to `.paused` or `.cancelled`.
     func stop(as status: DownloadStatus) {
         stopRequested = true
-        process?.terminate()
+        let running = process
+        running?.terminate()
         process = nil
         task.status = status
         task.speedBytesPerSec = 0
+        if status == .cancelled {
+            // yt-dlp may write a little more before it exits, so delete once it has really stopped.
+            let task = self.task
+            DispatchQueue.global().async {
+                running?.waitUntilExit()
+                task.deleteUnfinishedFiles()
+            }
+        }
     }
 
     // MARK: - Helpers
@@ -536,6 +550,7 @@ final class MediaDownloadJob {
                 task.downloadedBytes = size
             }
         }
+        task.deleteUnfinishedFiles()   // yt-dlp has moved the finished file out; nothing else stays
         task.status = .completed
         task.dateCompleted = Date()
         task.speedBytesPerSec = 0

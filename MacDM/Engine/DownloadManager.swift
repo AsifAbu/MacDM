@@ -58,6 +58,8 @@ final class DownloadManager: ObservableObject {
     private let isIsolated: Bool
     private let defaults: UserDefaults
     private let fallbackFolder: URL
+    /// Hidden home of every unfinished download (one folder each). Finished files are moved out of it.
+    private let incompleteRoot: URL
 
     static let folderKey = "downloadFolderPath"
 
@@ -111,6 +113,8 @@ final class DownloadManager: ObservableObject {
             self.persistenceURL = myAppSupport.appendingPathComponent("tasks.json")
         }
 
+        incompleteRoot = persistenceURL.deletingLastPathComponent().appendingPathComponent("Incomplete", isDirectory: true)
+
         // Use the folder the user chose earlier. If it is gone (e.g. an unplugged drive),
         // fall back to the default for this session but keep the saved choice.
         try? FileManager.default.createDirectory(at: fallbackFolder, withIntermediateDirectories: true)
@@ -127,6 +131,7 @@ final class DownloadManager: ObservableObject {
         }
 
         loadTasks()
+        removeOrphanedWorkFolders()
         if !isIsolated {
             startScheduler()
             requestNotificationPermission()
@@ -147,6 +152,7 @@ final class DownloadManager: ObservableObject {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 
         let task = DownloadTask(url: url, fileName: fileName, destinationFolder: folder)
+        task.workFolder = incompleteRoot.appendingPathComponent(task.id.uuidString, isDirectory: true)
         task.requestHeaders = headers
         tasks.insert(task, at: 0)
         persistTasks()
@@ -206,7 +212,7 @@ final class DownloadManager: ObservableObject {
         // Queued/paused tasks have no engine to do this; set it here so it is
         // saved as cancelled and the queue can't start it again.
         if task.status != .completed {
-            if task.status != .cancelled { try? FileManager.default.removeItem(at: task.partFileURL) }
+            task.deleteUnfinishedFiles()   // permanent, and only this download's own unfinished files
             task.status = .cancelled
             task.speedBytesPerSec = 0
         }
@@ -217,6 +223,19 @@ final class DownloadManager: ObservableObject {
     /// What the ✕ button on a row does: stop a download that is still active,
     /// or take a finished/failed/cancelled one out of the history list.
     /// Removing never deletes the downloaded file from disk.
+    /// After a crash, or for a download that no longer exists or can no longer resume, a work folder can be left
+    /// behind. Only folders inside the hidden Incomplete folder are ever removed here.
+    private func removeOrphanedWorkFolders() {
+        let fileManager = FileManager.default
+        guard let folders = try? fileManager.contentsOfDirectory(at: incompleteRoot, includingPropertiesForKeys: nil) else { return }
+        let resumable: Set<String> = Set(tasks
+            .filter { [.queued, .paused, .downloading, .failed].contains($0.status) }
+            .map { $0.id.uuidString })
+        for folder in folders where !resumable.contains(folder.lastPathComponent) {
+            try? fileManager.removeItem(at: folder)
+        }
+    }
+
     func cancelOrRemove(_ task: DownloadTask) {
         switch task.status {
         case .downloading, .queued, .paused:

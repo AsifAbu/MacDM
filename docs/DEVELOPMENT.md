@@ -105,3 +105,10 @@ data (`scripts/check-privacy.sh`), and writes `dist/MacDM.dmg`.
 - Site Grabber (`Services/SiteGrabber.swift`, `Views/SiteGrabberView.swift`): link extraction, same-site crawl to a
   depth of 2, size probing and filters. Chrome sends the rendered page's links with the `grab` action; cookies are
   only attached to links on the same site as the page.
+- Unfinished files: each download has its own hidden folder, `~/Library/Application Support/MacDM/Incomplete/<download id>/`
+  (`DownloadTask.workFolder`), holding the part file, the resume info and, for videos, yt-dlp's temporary files
+  (`-P temp:`). The finished file is moved into the download folder, then the work folder is deleted.
+  `DownloadTask.deleteUnfinishedFiles()` is the only deleter: it removes that one folder (never anything not named
+  after the download's id) permanently, not to the Trash. Downloads from older versions have no `workFolder`; for those
+  it removes just their own `name.idmpart` and `name.idmmeta`. On launch, work folders that belong to no resumable
+  download are removed. Tests: `WorkFolderTests`.

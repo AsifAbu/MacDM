@@ -41,7 +41,11 @@ This is a one-time step:
   connection doesn't hold the rest back. Change it in **Settings → Downloads** (1 to 32; above 8 rarely helps).
 - Downloads are saved in a **MacDM** folder inside your Downloads folder, sorted into Video, Music, Documents and
   so on. Change this in **MacDM → Settings (Cmd+,) → General → Download location → Browse…**.
-- The **✕** on a row cancels a running download. On a finished one it removes the entry from the list; the file stays.
+- While a file downloads, your download folder stays clean: the unfinished data is kept in a hidden folder of
+  MacDM's own, and the finished file is moved into your download folder when it completes. Nothing else is left behind.
+- The **✕** on a row cancels a running download and permanently deletes that download's unfinished data (it does not
+  go to the Trash). Finished files are never touched. On a finished row, **✕** only removes the entry from the list;
+  the file stays.
 - Closing the window keeps MacDM running so it can catch downloads from your browser. **Cmd+Q** quits it.
 
 ## Site Grabber

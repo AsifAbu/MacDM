@@ -101,6 +101,8 @@ final class DownloadEngine {
         guard !isStopped else { return }
         let folder = task.destinationFolder
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        // The unfinished file lives in this download's own hidden folder, not in the download folder.
+        try? FileManager.default.createDirectory(at: task.partFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
 
         // Pre-allocate the part file to full size so segments can seek-write concurrently.
         let partPath = task.partFileURL
@@ -266,8 +268,9 @@ final class DownloadEngine {
             if FileManager.default.fileExists(atPath: dest.path) {
                 try FileManager.default.removeItem(at: dest)
             }
+            // Moving works across disks too (a copy, then the original is removed).
             try FileManager.default.moveItem(at: task.partFileURL, to: dest)
-            try? FileManager.default.removeItem(at: task.metadataURL)
+            task.deleteUnfinishedFiles()   // nothing of this download stays behind
             finish(.success(()))
         } catch {
             finish(.failure(error))
@@ -308,7 +311,7 @@ final class DownloadEngine {
         progressTimer?.invalidate()
         segmentDownloaders.forEach { $0.cancel() }
         closeFile()
-        try? FileManager.default.removeItem(at: task.partFileURL)
+        task.deleteUnfinishedFiles()
         onMain { self.task.status = .cancelled; self.task.speedBytesPerSec = 0 }
     }
 

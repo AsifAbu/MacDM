@@ -78,6 +78,10 @@ final class DownloadTask: Identifiable, ObservableObject, Codable, Hashable {
     @Published var mediaReferer: String?
     /// Headers from the browser (Referer, Cookie, User-Agent…) sent with every request for this file.
     @Published var requestHeaders: [String: String]?
+    /// Where this download keeps its unfinished files (part file, resume info, yt-dlp's temporary files): a
+    /// hidden folder of its own, so the download folder only ever shows finished files. Nil for downloads
+    /// started by older versions, which kept those files next to the final file.
+    @Published var workFolder: URL?
 
     var progress: Double {
         guard totalBytes > 0 else { return 0 }
@@ -89,11 +93,27 @@ final class DownloadTask: Identifiable, ObservableObject, Codable, Hashable {
     }
 
     var partFileURL: URL {
-        destinationFolder.appendingPathComponent(fileName + ".idmpart")
+        workFolder?.appendingPathComponent("data.part")
+            ?? destinationFolder.appendingPathComponent(fileName + ".idmpart")
     }
 
     var metadataURL: URL {
-        destinationFolder.appendingPathComponent(fileName + ".idmmeta")
+        workFolder?.appendingPathComponent("info.meta")
+            ?? destinationFolder.appendingPathComponent(fileName + ".idmmeta")
+    }
+
+    /// Permanently deletes (no Trash) this download's unfinished files, and nothing else: its own work folder,
+    /// or for an older download the exact part and resume-info files. Finished files are never touched.
+    func deleteUnfinishedFiles() {
+        let fileManager = FileManager.default
+        if let workFolder {
+            // Only ever a folder named after this download; anything else is left alone.
+            guard workFolder.lastPathComponent == id.uuidString else { return }
+            try? fileManager.removeItem(at: workFolder)
+        } else {
+            try? fileManager.removeItem(at: partFileURL)
+            try? fileManager.removeItem(at: metadataURL)
+        }
     }
 
     init(url: URL, fileName: String, destinationFolder: URL) {
@@ -109,7 +129,7 @@ final class DownloadTask: Identifiable, ObservableObject, Codable, Hashable {
         case id, url, fileName, destinationFolder, category, status,
              totalBytes, downloadedBytes, segments, dateAdded, dateCompleted,
              scheduledStart, retryCount, priority, supportsResume, eTag, lastModified,
-             mediaFormat, mediaReferer, requestHeaders
+             mediaFormat, mediaReferer, requestHeaders, workFolder
     }
 
     required init(from decoder: Decoder) throws {
@@ -134,6 +154,7 @@ final class DownloadTask: Identifiable, ObservableObject, Codable, Hashable {
         mediaFormat = try? c.decode(String.self, forKey: .mediaFormat)
         mediaReferer = try? c.decode(String.self, forKey: .mediaReferer)
         requestHeaders = try? c.decode([String: String].self, forKey: .requestHeaders)
+        workFolder = try? c.decode(URL.self, forKey: .workFolder)
         // A download interrupted by quitting goes back to the queue and resumes on
         // launch. Paused, failed and cancelled tasks stay as the user left them.
         if status == .downloading { status = .queued }
@@ -161,5 +182,6 @@ final class DownloadTask: Identifiable, ObservableObject, Codable, Hashable {
         try c.encodeIfPresent(mediaFormat, forKey: .mediaFormat)
         try c.encodeIfPresent(mediaReferer, forKey: .mediaReferer)
         try c.encodeIfPresent(requestHeaders, forKey: .requestHeaders)
+        try c.encodeIfPresent(workFolder, forKey: .workFolder)
     }
 }
