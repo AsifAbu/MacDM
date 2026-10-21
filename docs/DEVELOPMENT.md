@@ -112,6 +112,13 @@ data (`scripts/check-privacy.sh`), and writes `dist/MacDM.dmg`.
   after the download's id) permanently, not to the Trash. Downloads from older versions have no `workFolder`; for those
   it removes just their own `name.idmpart` and `name.idmmeta`. On launch, work folders that belong to no resumable
   download are removed. Tests: `WorkFolderTests`.
+- Sign-in for videos: the "Use cookies from" setting is gone (it needed Full Disk Access and Keychain prompts, and
+  could not see the browser profile in use). For `formats` and `download_media` the Chrome background script adds the
+  cookies the browser would send to that page (`pageCookies`; YouTube also gets Google's). The app validates them
+  (`RequestSecurity.safeCookies`), writes a private (0600) Netscape `cookies.txt` (`CookieFile`) — a one-off temp file
+  for the lookup, or `cookies.txt` inside the download's hidden folder for the download — and passes `--cookies`.
+  They are never put in `tasks.json`, and the cached lookup result is scrubbed of cookie fields
+  (`MediaInfoCache.scrubbed`). Tests: `SignInTests`, `tests/extension/signin.test.js`.
 - Names: `FileNaming.moveWithoutReplacing` is the only way a finished file enters the download folder. It picks the
   first free name (`name`, `name (1)`, `name (2)`…) under a lock and never replaces a file; plain downloads and yt-dlp
   videos both use it (a video finishes inside its hidden folder, then is moved in). A detected file whose link has no

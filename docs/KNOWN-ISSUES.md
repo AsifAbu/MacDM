@@ -53,10 +53,11 @@ user, use **Settings → General → Uninstall MacDM…** (tick "delete my histo
 `scripts/reset-macdm-data.sh` (moves everything to a backup on your Desktop; `--dry-run` shows what it would do).
 Downloaded files are never touched.
 
-## 5. Full Disk Access is asked for again after every reinstall
+## 5. Full Disk Access is not needed
 
-Because the app is not signed with a developer certificate, macOS treats each new build as a new app. Only needed if
-you use "Use cookies from Safari" for sites such as YouTube.
+MacDM no longer reads your browser's files. The Chrome extension sends the page's sign-in for each video lookup and
+download, so the old "Use cookies from…" setting and its Full Disk Access requirement are gone. If an older version
+asked for Full Disk Access, you can switch MacDM off there.
 
 ## 6. Running the tests
 

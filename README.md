@@ -103,7 +103,10 @@ signed with one. It will work in a signed release. Until then, use Chrome or **A
 - The browser extensions talk to MacDM only on your own Mac (`127.0.0.1`), never over your network. Web pages and
   other extensions cannot use it.
 - MacDM contacts github.com only to check for a newer yt-dlp (at most once a day; you can turn it off).
-- Browser cookies are used only if you choose **Use cookies from…** in Settings, for sites that ask you to sign in.
+- When you click **Download this video** in Chrome, the extension sends that page's sign-in (its cookies) to MacDM, so
+  sites that check it, such as YouTube's "confirm you're not a bot", accept the request. MacDM keeps it in a private
+  temporary file for that one download and deletes it when the download finishes or is cancelled. It is never saved
+  in your history or settings, and MacDM never reads your browser's files.
 
 ## Uninstall
 
@@ -118,7 +121,7 @@ at `chrome://extensions`.
 | "MacDM can't be opened" the first time | System Settings → Privacy & Security → **Open Anyway** |
 | MacDM isn't in the Dock after installing | Run `killall Dock` in Terminal |
 | Chrome says `ERR_FILE_NOT_FOUND` for the extension | Remove it, then load the folder from Settings → Browser → Copy Extension Folder |
-| A video site says "confirm you're not a bot" | Settings → Browser → **Use cookies from** your browser (Safari also needs Full Disk Access) |
+| A video site says "confirm you're not a bot" | Make sure you are signed in to the site in Chrome, pass any check it shows, reload the page and try again. If it keeps happening, wait a few minutes |
 | MacDM's icon stays in the Dock after I quit it | macOS shows recent apps there. Turn off **System Settings → Desktop & Dock → Show suggested and recent apps in Dock** |
 | **Uninstall MacDM…** is greyed out | You are running a copy from a disk image or Xcode. Quit it and open MacDM from the **Applications** folder |
 | The extension shows "Extension context invalidated" | You reloaded the extension while a page was open. Reload that page (the old script stops by itself) |
