@@ -331,6 +331,9 @@ struct MediaOptionsTests {
     @Test("yt-dlp bot-check and cookie errors become actionable messages")
     func friendlyErrors() {
         #expect(MediaError.fromYtDlp("ERROR: Sign in to confirm you're not a bot").errorDescription?.contains("Settings") == true)
+        // The advice names the browser setting, and no longer sends Chrome users to Safari only.
+        let botCheck = MediaError.fromYtDlp("ERROR: Sign in to confirm you're not a bot").errorDescription ?? ""
+        #expect(botCheck.contains("Chrome") || botCheck.contains("already using"))
         #expect(MediaError.fromYtDlp("ERROR: [Cookies] Operation not permitted").errorDescription?.contains("Full Disk Access") == true)
         #expect(MediaError.fromYtDlp("ERROR: Video unavailable").errorDescription == "Video unavailable")
     }

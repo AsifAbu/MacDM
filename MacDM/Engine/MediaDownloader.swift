@@ -12,7 +12,12 @@ enum MediaError: LocalizedError {
     static func fromYtDlp(_ line: String) -> MediaError {
         let cleaned = line.replacingOccurrences(of: "ERROR: ", with: "")
         if cleaned.contains("not a bot") {
-            return .extractionFailed("YouTube is asking to confirm you're not a bot. In MacDM Settings → Browser, choose Safari under \"Use cookies from\", and grant MacDM Full Disk Access.")
+            // YouTube's own check. Using the cookies of a browser that is signed in to YouTube normally clears it.
+            let current = UserDefaults.standard.string(forKey: "cookiesBrowser") ?? "none"
+            let advice = current == "none"
+                ? "In MacDM Settings → Browser, choose the browser you are signed in to YouTube with (for example Chrome) under \"Use cookies from\", allow the Keychain prompt if macOS asks, then try again."
+                : "MacDM is already using your \(current.capitalized) cookies. Open YouTube in that browser, make sure you are signed in (and pass any check it shows), then try again in a few minutes."
+            return .extractionFailed("YouTube is asking to confirm you're not a bot. " + advice + " (Safari also needs Full Disk Access for MacDM.)")
         }
         if cleaned.contains("Operation not permitted") && cleaned.contains("Cookies") {
             return .extractionFailed("MacDM can't read your browser cookies. Grant Full Disk Access in System Settings → Privacy & Security, then restart MacDM.")
