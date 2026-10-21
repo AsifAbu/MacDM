@@ -177,10 +177,11 @@ final class NativeMessagingHost {
     private func handleFormats(_ message: [String: Any], reply: @escaping ([String: Any]) -> Void) {
         guard let url = requireWebURL(message, reply: reply) else { return }
         let referer = message["referer"] as? String
+        let cookies = RequestSecurity.safeCookies(message["cookies"])
 
         Task {
             do {
-                let info = try await MediaExtractor.fetchInfoCached(url: url, referer: referer)
+                let info = try await MediaExtractor.fetchInfoCached(url: url, referer: referer, cookies: cookies)
                 var payload: [String: Any] = [
                     "ok": true,
                     "title": info.title,
@@ -209,7 +210,8 @@ final class NativeMessagingHost {
             formatSelector: selector,
             audioOnly: message["audioOnly"] as? Bool ?? false,
             referer: message["referer"] as? String,
-            headers: RequestSecurity.safeHeaders(message["headers"])
+            headers: RequestSecurity.safeHeaders(message["headers"]),
+            cookies: RequestSecurity.safeCookies(message["cookies"])
         )
         reply(["ok": true])
     }

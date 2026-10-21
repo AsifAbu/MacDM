@@ -89,3 +89,44 @@ enum RequestSecurity {
         return cleaned
     }
 }
+
+/// One cookie the browser extension sends from the page the user is on, so a download can use the same sign-in.
+struct BrowserCookie: Equatable {
+    var domain: String
+    var path: String
+    var secure: Bool
+    var httpOnly: Bool
+    var expires: Int          // seconds since 1970; 0 for a session cookie
+    var name: String
+    var value: String
+}
+
+extension RequestSecurity {
+    static let maxCookies = 400
+
+    /// The cookies in a message, keeping only well-formed ones. A cookie is dropped when a field could break the
+    /// cookie file's tab-separated lines (tabs, line breaks), when the domain is not a plain host name, or when
+    /// it is oversized, so nothing in a message can add lines or fields of its own.
+    static func safeCookies(_ raw: Any?) -> [BrowserCookie] {
+        guard let list = raw as? [[String: Any]] else { return [] }
+        func clean(_ value: Any?, limit: Int) -> String? {
+            guard let text = value as? String, !text.isEmpty, text.count <= limit,
+                  !text.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }) else { return nil }
+            return text
+        }
+        var result: [BrowserCookie] = []
+        for item in list.prefix(maxCookies) {
+            guard let domain = clean(item["domain"], limit: 253),
+                  domain.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) || ".-_".unicodeScalars.contains($0) }),
+                  let path = clean(item["path"], limit: 1024), path.hasPrefix("/"),
+                  let name = clean(item["name"], limit: 256), !name.contains("="),
+                  let value = clean(item["value"] ?? "", limit: 4096) ?? ((item["value"] as? String) == "" ? "" : nil)
+            else { continue }
+            let expires = (item["expires"] as? NSNumber)?.intValue ?? 0
+            result.append(BrowserCookie(domain: domain, path: path, secure: item["secure"] as? Bool ?? false,
+                                        httpOnly: item["httpOnly"] as? Bool ?? false, expires: max(0, expires),
+                                        name: name, value: value))
+        }
+        return result
+    }
+}

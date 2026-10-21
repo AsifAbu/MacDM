@@ -132,7 +132,6 @@ struct DownloadsSettingsTab: View {
 // MARK: - Browser
 
 struct BrowserSettingsTab: View {
-    @AppStorage("cookiesBrowser") private var cookiesBrowser = "none"
     @AppStorage(YtDlpUpdater.autoUpdateKey) private var autoUpdate = true
     @State private var ytDlpVersion: String?
     @State private var updateStatus = ""
@@ -185,19 +184,6 @@ struct BrowserSettingsTab: View {
                 }
                 if !updateStatus.isEmpty {
                     Text(updateStatus).font(.caption).foregroundStyle(.secondary)
-                }
-                Picker("Use cookies from", selection: $cookiesBrowser) {
-                    Text("None").tag("none")
-                    Text("Safari").tag("safari")
-                    Text("Chrome").tag("chrome")
-                    Text("Firefox").tag("firefox")
-                    Text("Edge").tag("edge")
-                    Text("Brave").tag("brave")
-                }
-                Text("Only needed if a site such as YouTube says “Sign in to confirm you’re not a bot”. Reading a browser’s cookies needs Full Disk Access for MacDM.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Button("Open Full Disk Access Settings…") {
-                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
                 }
             }
         }

@@ -9,22 +9,12 @@ enum MediaError: LocalizedError {
     case badOutput
 
     /// Wraps a yt-dlp stderr line, replacing known cookie/bot-check failures with actionable advice.
-    /// `cookiesBrowser` is the "Use cookies from" setting; it decides which advice a bot check gets.
-    static func fromYtDlp(_ line: String, cookiesBrowser: String = UserDefaults.standard.string(forKey: "cookiesBrowser") ?? "none") -> MediaError {
+    static func fromYtDlp(_ line: String) -> MediaError {
         let cleaned = line.replacingOccurrences(of: "ERROR: ", with: "")
         if cleaned.contains("not a bot") {
-            // YouTube's own check. Using the cookies of a browser that is signed in to YouTube normally clears it.
-            let current = cookiesBrowser
-            let advice = current == "none"
-                ? "In MacDM Settings → Browser, choose the browser you are signed in to YouTube with (for example Chrome) under \"Use cookies from\", allow the Keychain prompt if macOS asks, then try again."
-                : "MacDM is already using your \(current.capitalized) cookies. Open YouTube in that browser, make sure you are signed in (and pass any check it shows), then try again in a few minutes."
-            return .extractionFailed("YouTube is asking to confirm you're not a bot. " + advice + " (macOS may also ask you to allow MacDM under Full Disk Access.)")
-        }
-        // macOS hides a browser's data folder from apps without Full Disk Access; yt-dlp then says it "could not
-        // find" the cookie database, although the folder is there.
-        let cookieDatabaseUnreadable = cleaned.contains("could not find") && cleaned.contains("cookies database")
-        if cookieDatabaseUnreadable || (cleaned.contains("Operation not permitted") && cleaned.contains("Cookies")) {
-            return .extractionFailed("MacDM can't read your browser's cookies because macOS keeps that folder private. Turn on MacDM in System Settings → Privacy & Security → Full Disk Access (Settings → Browser has a button for it), then quit and reopen MacDM.")
+            // YouTube's own check. The extension sends the page's sign-in with every request, so what helps is being
+            // signed in to YouTube in Chrome (and passing any check YouTube shows there), then trying again.
+            return .extractionFailed("YouTube is asking to confirm you're not a bot. Make sure you are signed in to YouTube in Chrome (and pass any check it shows), reload the page, and try again. If it keeps happening, wait a few minutes.")
         }
         return .extractionFailed(cleaned)
     }
@@ -116,10 +106,39 @@ enum MediaTools {
         }
     }
 
-    /// yt-dlp arguments for the "Use cookies from" setting (needed when YouTube shows a bot check).
-    static var cookieArguments: [String] {
-        let browser = UserDefaults.standard.string(forKey: "cookiesBrowser") ?? "none"
-        return browser == "none" ? [] : ["--cookies-from-browser", browser]
+}
+
+// MARK: - The browser's sign-in, handed over by the extension
+
+/// Writes cookies in the Netscape cookies.txt format that yt-dlp reads. The file is private to the owner and is
+/// deleted when the lookup or download ends.
+enum CookieFile {
+    static let fileName = "cookies.txt"
+
+    static func text(for cookies: [BrowserCookie]) -> String {
+        var lines = ["# Netscape HTTP Cookie File"]
+        for cookie in cookies {
+            let includeSubdomains = cookie.domain.hasPrefix(".") ? "TRUE" : "FALSE"
+            let prefix = cookie.httpOnly ? "#HttpOnly_" : ""
+            lines.append([prefix + cookie.domain, includeSubdomains, cookie.path, cookie.secure ? "TRUE" : "FALSE",
+                          String(cookie.expires), cookie.name, cookie.value].joined(separator: "\t"))
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// Creates the file readable by the owner only.
+    static func write(_ cookies: [BrowserCookie], to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let made = FileManager.default.createFile(atPath: url.path, contents: Data(text(for: cookies).utf8),
+                                                  attributes: [.posixPermissions: 0o600])
+        if !made { throw CocoaError(.fileWriteUnknown) }
+    }
+
+    /// `--cookies <file>` when the download has its cookie file, otherwise nothing.
+    static func arguments(for task: DownloadTask) -> [String] {
+        guard let work = task.workFolder else { return [] }
+        let file = work.appendingPathComponent(fileName)
+        return FileManager.default.fileExists(atPath: file.path) ? ["--cookies", file.path] : []
     }
 }
 
@@ -174,7 +193,28 @@ enum MediaInfoCache {
 
     static func store(_ data: Data, for url: URL) {
         purgeExpired()
-        try? data.write(to: fileURL(for: url), options: .atomic)
+        let file = fileURL(for: url)
+        try? scrubbed(data).write(to: file, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)   // owner only
+    }
+
+    /// The lookup result without anything that carries a sign-in: "cookies" fields and Cookie or Authorization
+    /// headers, wherever they appear. The download gets its sign-in from its own private cookie file instead.
+    static func scrubbed(_ data: Data) -> Data {
+        guard let object = try? JSONSerialization.jsonObject(with: data) else { return data }
+        func clean(_ value: Any) -> Any {
+            if let dictionary = value as? [String: Any] {
+                var result: [String: Any] = [:]
+                for (key, inner) in dictionary {
+                    if key.lowercased() == "cookies" || ["cookie", "authorization"].contains(key.lowercased()) { continue }
+                    result[key] = clean(inner)
+                }
+                return result
+            }
+            if let list = value as? [Any] { return list.map(clean) }
+            return value
+        }
+        return (try? JSONSerialization.data(withJSONObject: clean(object))) ?? data
     }
 
     /// The cached file for this page, if it exists and is still fresh.
@@ -232,20 +272,32 @@ actor MediaInfoStore {
 
 enum MediaExtractor {
     /// Like `fetchInfo`, but reuses a result from the last few minutes for the same page.
-    /// The cookie setting is part of the key, so changing it gives a fresh lookup.
-    static func fetchInfoCached(url: URL, referer: String?) async throws -> MediaInfo {
-        let browser = UserDefaults.standard.string(forKey: "cookiesBrowser") ?? "none"
-        let key = [url.absoluteString, referer ?? "", browser].joined(separator: "|")
+    /// Whether a sign-in was sent is part of the key, so a lookup that failed without one is retried with one.
+    static func fetchInfoCached(url: URL, referer: String?, cookies: [BrowserCookie] = []) async throws -> MediaInfo {
+        let key = [url.absoluteString, referer ?? "", cookies.isEmpty ? "anonymous" : "signed-in"].joined(separator: "|")
         return try await MediaInfoStore.shared.info(for: key) {
-            try await fetchInfo(url: url, referer: referer)
+            try await fetchInfo(url: url, referer: referer, cookies: cookies)
         }
     }
 
     /// Runs `yt-dlp -J` for the page and condenses the result into quality choices.
-    static func fetchInfo(url: URL, referer: String?) async throws -> MediaInfo {
+    static func fetchInfo(url: URL, referer: String?, cookies: [BrowserCookie] = []) async throws -> MediaInfo {
         guard let ytDlp = MediaTools.find("yt-dlp") else { throw MediaError.ytDlpMissing }
 
-        var args = ["-J", "--no-playlist", "--no-warnings"] + MediaTools.cookieArguments
+        var args = ["-J", "--no-playlist", "--no-warnings"]
+        if !cookies.isEmpty {
+            // A private one-off file for this lookup; removed as soon as yt-dlp has finished.
+            let file = FileManager.default.temporaryDirectory.appendingPathComponent("macdm-cookies-\(UUID().uuidString).txt")
+            try CookieFile.write(cookies, to: file)
+            defer { try? FileManager.default.removeItem(at: file) }
+            args += ["--cookies", file.path]
+            return try await runLookup(ytDlp, args: args, url: url, referer: referer)
+        }
+        return try await runLookup(ytDlp, args: args, url: url, referer: referer)
+    }
+
+    private static func runLookup(_ ytDlp: URL, args: [String], url: URL, referer: String?) async throws -> MediaInfo {
+        var args = args
         if let referer, !referer.isEmpty { args += ["--referer", referer] }
         args += ["--", url.absoluteString]
 
@@ -405,7 +457,7 @@ final class MediaDownloadJob {
             "-P", (task.workFolder ?? task.destinationFolder).path,
             "-o", Self.outputTemplate(for: task, selector: selector)
         ]
-        args += MediaTools.cookieArguments
+        args += CookieFile.arguments(for: task)
         if selector.contains("+") { args += ["--merge-output-format", "mp4"] }
         if let ffmpeg = MediaTools.find("ffmpeg") {
             args += ["--ffmpeg-location", ffmpeg.deletingLastPathComponent().path]

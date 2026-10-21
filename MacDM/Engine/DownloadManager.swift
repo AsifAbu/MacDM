@@ -166,12 +166,17 @@ final class DownloadManager: ObservableObject {
     /// Queues a video/stream download that yt-dlp resolves from a page or playlist URL.
     @discardableResult
     func addMediaDownload(pageURL: URL, title: String, formatSelector: String, audioOnly: Bool, referer: String?,
-                          headers: [String: String]? = nil) -> DownloadTask {
+                          headers: [String: String]? = nil, cookies: [BrowserCookie] = []) -> DownloadTask {
         let safeTitle = title.replacingOccurrences(of: "/", with: "-")
         let fileName = safeTitle + (audioOnly ? ".m4a" : ".mp4")
         let task = addDownload(url: pageURL, suggestedName: fileName, startImmediately: false, headers: headers)
         task.mediaFormat = formatSelector
         task.mediaReferer = referer
+        // The browser's sign-in goes in a private file inside this download's hidden folder, never into the saved
+        // task list, and disappears with the folder when the download finishes or is cancelled.
+        if !cookies.isEmpty, let work = task.workFolder {
+            try? CookieFile.write(cookies, to: work.appendingPathComponent(CookieFile.fileName))
+        }
         persistTasks()
         enqueueAndProcess(task)
         return task
