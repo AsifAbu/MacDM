@@ -63,6 +63,7 @@ final class DownloadEngine {
     private func probeServer(completion: @escaping (Result<(Int64, Bool, String?, String?), Error>) -> Void) {
         var request = URLRequest(url: task.url)
         request.httpMethod = "HEAD"
+        for (name, value) in task.requestHeaders ?? [:] { request.setValue(value, forHTTPHeaderField: name) }
         let session = URLSession(configuration: NetworkConfig.sessionConfiguration(), delegate: ProbeAuthDelegate.shared, delegateQueue: nil)
         session.dataTask(with: request) { _, response, error in
             if let error = error { completion(.failure(error)); return }
@@ -121,7 +122,8 @@ final class DownloadEngine {
                 endByte: seg.endByte,
                 alreadyDownloaded: seg.downloadedBytes,
                 fileHandle: handle,
-                writeLock: writeLock
+                writeLock: writeLock,
+                headers: task.requestHeaders ?? [:]
             )
             downloader.speedLimitBytesPerSec = speedLimitBytesPerSec / Double(max(effectiveSegmentCount, 1))
             downloader.onProgress = { [weak self] bytes in
@@ -203,7 +205,7 @@ final class DownloadEngine {
         let downloader = SegmentDownloader(
             segmentIndex: seg.index, url: task.url, startByte: seg.startByte,
             endByte: seg.endByte, alreadyDownloaded: seg.downloadedBytes, fileHandle: handle,
-            writeLock: writeLock
+            writeLock: writeLock, headers: task.requestHeaders ?? [:]
         )
         downloader.onProgress = { [weak self] bytes in self?.handleProgress(segmentIndex: seg.index, bytes: bytes) }
         downloader.onComplete = { [weak self] result in self?.handleSegmentComplete(segmentIndex: seg.index, result: result) }

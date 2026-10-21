@@ -276,6 +276,52 @@ struct DownloadEngineTests {
         #expect(try Data(contentsOf: task.finalDestinationURL) == server.expectedBody)
     }
 
+    @Test("the browser's Referer and cookie are sent on every request, so protected servers accept the download")
+    func sendsBrowserHeaders() async throws {
+        let server = try TestHTTPServer(.init(bodySize: 3_000_000))
+        defer { server.stop() }
+        let env = IsolatedManager()
+        defer { env.cleanUp() }
+
+        let headers = ["Referer": "https://site.example/watch", "Cookie": "session=abc123", "User-Agent": "TestBrowser/1.0"]
+        let task = env.manager.addDownload(url: server.url, suggestedName: "protected.bin", headers: headers)
+        #expect(await waitUntil { task.status == .completed })
+        #expect(try Data(contentsOf: task.finalDestinationURL) == server.expectedBody)
+
+        let seen = server.requests
+        #expect(seen.contains { $0.method == "HEAD" }, "the size check")
+        #expect(seen.contains { $0.method == "GET" }, "the download")
+        for request in seen {
+            #expect(request.headers["referer"] == "https://site.example/watch", "\(request.method) lacked the Referer")
+            #expect(request.headers["cookie"] == "session=abc123", "\(request.method) lacked the cookie")
+            #expect(request.headers["user-agent"] == "TestBrowser/1.0", "\(request.method) lacked the User-Agent")
+        }
+    }
+
+    @Test("without browser headers nothing extra is sent")
+    func noHeadersByDefault() async throws {
+        let server = try TestHTTPServer(.init(bodySize: 20_000))
+        defer { server.stop() }
+        let env = IsolatedManager()
+        defer { env.cleanUp() }
+        let task = env.manager.addDownload(url: server.url, suggestedName: "plain.bin")
+        #expect(await waitUntil { task.status == .completed })
+        for request in server.requests {
+            #expect(request.headers["cookie"] == nil)
+            #expect(request.headers["referer"] == nil)
+        }
+    }
+
+    @Test("a download's headers survive quitting and reopening, so a resumed download still works")
+    func headersSurviveRelaunch() {
+        let env = IsolatedManager()
+        defer { env.cleanUp() }
+        env.manager.maxConcurrentDownloads = 0
+        env.manager.addDownload(url: URL(string: "http://127.0.0.1:9/x.bin")!, suggestedName: "x.bin",
+                                headers: ["Referer": "https://site.example/", "Cookie": "a=1"])
+        #expect(env.relaunch().tasks.first?.requestHeaders == ["Referer": "https://site.example/", "Cookie": "a=1"])
+    }
+
     @Test("a small file completes")
     func smallFile() async throws {
         let server = try TestHTTPServer(.init(bodySize: 20_000))

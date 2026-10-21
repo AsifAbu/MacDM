@@ -393,6 +393,10 @@ final class MediaDownloadJob {
             args += ["--ffmpeg-location", ffmpeg.deletingLastPathComponent().path]
         }
         if let referer = task.mediaReferer, !referer.isEmpty { args += ["--referer", referer] }
+        // The browser's identity and cookies, so protected streams open for yt-dlp as they did for the browser.
+        for name in ["Cookie", "User-Agent", "Origin"] {
+            if let value = task.requestHeaders?[name] { args += ["--add-header", "\(name):\(value)"] }
+        }
         if speedLimitBytesPerSec > 0 { args += ["--limit-rate", String(Int(speedLimitBytesPerSec))] }
         // Reuse the format lookup's result when we have it: no second hit on the site.
         let cachedInfo = useCache ? MediaInfoCache.freshFile(for: task.url) : nil

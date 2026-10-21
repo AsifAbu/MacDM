@@ -18,6 +18,7 @@
   const SKIP_HOSTS = /(googlevideo\.com|doubleclick\.net|googleadservices\.com)/i;
 
   const sniffed = new Map(); // url -> { url, stream }
+  let detected = []; // media the extension's background found in network traffic (any frame): { url, kind, size, headers }
   let panelOpen = false;
   let requestToken = 0;
   let lastFormatsURL = null;
@@ -34,6 +35,26 @@
       .then((reply) => reply || { ok: false, error: "No reply from MacDM." })
       .catch((error) => ({ ok: false, error: String((error && error.message) || error) }));
   }
+
+  // Media the background script found by watching network traffic. Safari's background script doesn't
+  // do this, so the reply is simply empty there.
+  function refreshDetected() {
+    return chrome.runtime.sendMessage({ type: "media-list" })
+      .then((reply) => {
+        const items = reply && Array.isArray(reply.items) ? reply.items : [];
+        const changed = items.length !== detected.length;
+        detected = items;
+        if (changed) {
+          updatePosition();
+          if (panelOpen) render({ formats: lastFormats });
+        }
+      })
+      .catch(() => {});
+  }
+
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message && message.type === "media-detected") refreshDetected();
+  });
 
   // ---------- small DOM helpers ----------
 
@@ -138,10 +159,19 @@
 
   // ---------- positioning ----------
 
+  // Every <video> on the page, including ones inside (open) shadow DOM, which querySelectorAll skips.
+  function allVideos(root = document, found = []) {
+    for (const video of root.querySelectorAll("video")) found.push(video);
+    for (const node of root.querySelectorAll("*")) {
+      if (node.shadowRoot) allVideos(node.shadowRoot, found);
+    }
+    return found;
+  }
+
   function findMainVideo() {
     let best = null;
     let bestArea = 0;
-    for (const video of document.querySelectorAll("video")) {
+    for (const video of allVideos()) {
       const r = video.getBoundingClientRect();
       const visible = r.width > 200 && r.height > 100 && r.bottom > 0 && r.top < window.innerHeight;
       const area = r.width * r.height;
@@ -160,7 +190,7 @@
 
   function updatePosition() {
     const video = findMainVideo();
-    const hasMedia = video || sniffed.size > 0;
+    const hasMedia = video || sniffed.size > 0 || detected.length > 0;
     if (!hasMedia || barDismissed) {
       bar.style.display = "none";
       closePanel();
@@ -210,7 +240,7 @@
     updatePosition();
     render({ loading: true });
 
-    const canResolve = isYouTubeWatch() || findMainVideo() || [...sniffed.values()].some((s) => s.stream);
+    const canResolve = isYouTubeWatch() || findMainVideo() || detected.length > 0 || [...sniffed.values()].some((s) => s.stream);
     if (!canResolve) {
       render({ formats: null });
       return;
@@ -272,6 +302,33 @@
     return row;
   }
 
+  // Everything found on this page, newest first: from network traffic (any frame) and from this page's own requests.
+  function allFinds() {
+    const byUrl = new Map();
+    for (const item of [...sniffed.values()].map((s) => ({ url: s.url, kind: s.stream ? "hls" : "file", size: 0, headers: {} }))) {
+      byUrl.set(item.url, item);
+    }
+    for (const item of detected) byUrl.set(item.url, { headers: {}, size: 0, ...item });   // network finds carry headers and sizes
+    return [...byUrl.values()].reverse();
+  }
+
+  function displayName(item) {
+    try {
+      return decodeURIComponent(item.url.split("?")[0].split("/").pop() || item.url);
+    } catch (_) {
+      return item.url;
+    }
+  }
+
+  // Streams (HLS/DASH) go through yt-dlp; plain files download directly. Both carry the browser's own
+  // Referer, cookies and User-Agent so servers that check them accept MacDM.
+  function downloadFind(item, name) {
+    const headers = { Referer: location.href, ...(item.headers || {}) };
+    return item.kind === "hls" || item.kind === "dash"
+      ? native({ action: "download_media", url: item.url, title: document.title || name, selector: "b/bv*+ba", audioOnly: false, referer: location.href, headers })
+      : native({ action: "download", url: item.url, suggestedFileName: name, forced: true, sourcePageURL: location.href, headers });
+  }
+
   function render({ loading, formats }) {
     panel.textContent = "";
     panel.appendChild(panelHeader);
@@ -304,14 +361,14 @@
       panel.appendChild(el("div", { color: "#f28b82", padding: "4px 0", lineHeight: "1.4" }, formats.error || "Could not read this page."));
     }
 
-    const direct = [...sniffed.values()];
+    const direct = allFinds();
     if (direct.length > 0) {
       panel.appendChild(sectionTitle("Detected media on this page"));
-      for (const item of direct.slice(-6).reverse()) {
-        const name = decodeURIComponent(item.url.split("?")[0].split("/").pop() || item.url);
-        panel.appendChild(actionRow(name, item.stream ? "stream" : "", () => item.stream
-          ? native({ action: "download_media", url: item.url, title: document.title || name, selector: "b/bv*+ba", audioOnly: false, referer: location.href })
-          : native({ action: "download", url: item.url, suggestedFileName: name, forced: true, sourcePageURL: location.href })));
+      for (const item of direct.slice(0, 8)) {
+        const name = displayName(item);
+        const detail = [item.kind === "hls" ? "HLS stream" : item.kind === "dash" ? "DASH stream" : "", formatBytes(item.size)]
+          .filter(Boolean).join(" · ");
+        panel.appendChild(actionRow(name, detail, () => downloadFind(item, name)));
       }
     }
 
@@ -345,12 +402,17 @@
     // PerformanceObserver "resource" not supported: bar still works for <video> pages.
   }
 
+  refreshDetected();
+  setInterval(refreshDetected, 3000);   // safety net in case a push message was missed
+
   // Clear stale sniffing results when a single-page app navigates.
   let lastHref = location.href;
   setInterval(() => {
     if (location.href !== lastHref) {
       lastHref = location.href;
       sniffed.clear();
+      detected = [];
+      refreshDetected();
       lastFormatsURL = null;
       lastFormats = null;
       barDismissed = false;

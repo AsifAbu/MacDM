@@ -41,6 +41,27 @@ enum RequestSecurity {
         return url
     }
 
+    /// The request headers a browser extension may pass on so a download looks like the browser's own
+    /// (the page it came from, its cookies, its identity). Anything else is dropped. Returns nil if
+    /// nothing usable is left.
+    static func safeHeaders(_ raw: Any?) -> [String: String]? {
+        guard let dict = raw as? [String: Any] else { return nil }
+        let canonicalNames = ["referer": "Referer", "cookie": "Cookie", "user-agent": "User-Agent",
+                              "origin": "Origin", "accept-language": "Accept-Language"]
+        var result: [String: String] = [:]
+        for (name, value) in dict {
+            guard let canonical = canonicalNames[name.lowercased()], let text = value as? String else { continue }
+            let trimmed = text.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty,
+                  trimmed.count <= (canonical == "Cookie" ? 8192 : 2048),
+                  // No line breaks or control characters: they could smuggle in extra headers.
+                  !trimmed.unicodeScalars.contains(where: { $0.value < 32 && $0 != "\t" || $0.value == 127 }) else { continue }
+            if canonical == "Referer" || canonical == "Origin", webURL(from: trimmed) == nil { continue }
+            result[canonical] = trimmed
+        }
+        return result.isEmpty ? nil : result
+    }
+
     /// Turns a file name suggested by a web page into a safe single file name.
     ///
     /// A page controls this text, so a name like "../../Library/LaunchAgents/x.plist"

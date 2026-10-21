@@ -61,6 +61,48 @@ struct RequestSecurityTests {
         #expect(RequestSecurity.webURL(from: nil) == nil)
     }
 
+    // MARK: Browser headers passed on to the downloader
+
+    @Test("Referer, Cookie, User-Agent and Origin are passed on; names are matched in any letter case")
+    func headersAllowed() {
+        let result = RequestSecurity.safeHeaders([
+            "referer": "https://site.example/watch?v=1", "COOKIE": "a=1; b=2",
+            "User-Agent": "Mozilla/5.0", "Origin": "https://site.example"
+        ])
+        #expect(result == ["Referer": "https://site.example/watch?v=1", "Cookie": "a=1; b=2",
+                           "User-Agent": "Mozilla/5.0", "Origin": "https://site.example"])
+    }
+
+    @Test("other headers are dropped", arguments: ["Authorization", "Host", "Content-Length", "X-Anything", "Range", "Proxy-Authorization"])
+    func headersDropped(name: String) {
+        #expect(RequestSecurity.safeHeaders([name: "value"]) == nil)
+    }
+
+    @Test("a header value with a line break is dropped, so it cannot smuggle in another header")
+    func headersNoInjection() {
+        #expect(RequestSecurity.safeHeaders(["Cookie": "a=1\r\nX-Evil: 1"]) == nil)
+        #expect(RequestSecurity.safeHeaders(["User-Agent": "x\ny"]) == nil)
+        #expect(RequestSecurity.safeHeaders(["Cookie": "ok=1", "User-Agent": "bad\r\nvalue"]) == ["Cookie": "ok=1"])
+    }
+
+    @Test("a Referer or Origin must be a web address")
+    func headersReferer() {
+        #expect(RequestSecurity.safeHeaders(["Referer": "file:///etc/passwd"]) == nil)
+        #expect(RequestSecurity.safeHeaders(["Origin": "javascript:alert(1)"]) == nil)
+        #expect(RequestSecurity.safeHeaders(["Referer": "not a url"]) == nil)
+    }
+
+    @Test("empty, oversized and non-text values are dropped; nothing usable gives nil")
+    func headersLimits() {
+        #expect(RequestSecurity.safeHeaders(["Cookie": "   "]) == nil)
+        #expect(RequestSecurity.safeHeaders(["Cookie": String(repeating: "a", count: 9000)]) == nil)
+        #expect(RequestSecurity.safeHeaders(["Cookie": String(repeating: "a", count: 8000)])?["Cookie"]?.count == 8000)
+        #expect(RequestSecurity.safeHeaders(["Cookie": 42]) == nil)
+        #expect(RequestSecurity.safeHeaders("not a dictionary") == nil)
+        #expect(RequestSecurity.safeHeaders(nil) == nil)
+        #expect(RequestSecurity.safeHeaders([String: Any]()) == nil)
+    }
+
     // MARK: File names
 
     @Test("a page cannot choose a name that escapes the download folder", arguments: [

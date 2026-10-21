@@ -22,10 +22,14 @@ final class TestHTTPServer: @unchecked Sendable {
     private let lock = NSLock()
     private var _headCount = 0
     private var _getCount = 0
+    private var _requests: [(method: String, headers: [String: String])] = []
     private(set) var port: UInt16 = 0
 
     var headCount: Int { lock.lock(); defer { lock.unlock() }; return _headCount }
     var getCount: Int { lock.lock(); defer { lock.unlock() }; return _getCount }
+
+    /// Every request received so far: the method and the headers (names in lower case).
+    var requests: [(method: String, headers: [String: String])] { lock.lock(); defer { lock.unlock() }; return _requests }
 
     var url: URL { URL(string: "http://127.0.0.1:\(port)/file.bin")! }
 
@@ -78,6 +82,13 @@ final class TestHTTPServer: @unchecked Sendable {
         let lines = text.components(separatedBy: "\r\n")
         let method = lines.first?.split(separator: " ").first.map(String.init) ?? "GET"
         let total = config.bodySize
+
+        var headers: [String: String] = [:]
+        for line in lines.dropFirst() {
+            guard let colon = line.firstIndex(of: ":") else { continue }
+            headers[line[..<colon].lowercased()] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+        }
+        lock.lock(); _requests.append((method, headers)); lock.unlock()
 
         var rangeStart = 0
         var rangeEnd = total - 1

@@ -143,6 +143,24 @@ struct LocalServerTests {
         DownloadManager.shared.tasks.forEach { DownloadManager.shared.remove($0) }
     }
 
+    @Test("headers sent by the extension are filtered: allowed ones kept, the rest dropped")
+    func extensionHeadersFiltered() async throws {
+        let (server, port) = try #require(await startServer())
+        defer { server.stop() }
+        let before = DownloadManager.shared.tasks.count
+
+        let reply = try await send("POST", to: port, origin: extensionOrigin, body: json([
+            "action": "download", "url": "http://127.0.0.1:9/video.mp4", "forced": true,
+            "headers": ["Referer": "https://site.example/watch", "Cookie": "s=1", "Authorization": "Bearer secret", "Host": "evil.example"]
+        ]))
+        #expect(reply.json?["ok"] as? Bool == true)
+        #expect(DownloadManager.shared.tasks.count == before + 1)
+        let task = try #require(DownloadManager.shared.tasks.first)
+        #expect(task.requestHeaders == ["Referer": "https://site.example/watch", "Cookie": "s=1"])
+
+        DownloadManager.shared.tasks.forEach { DownloadManager.shared.remove($0) }
+    }
+
     @Test("download_media without a format selector is rejected")
     func mediaNeedsSelector() async throws {
         let (server, port) = try #require(await startServer())

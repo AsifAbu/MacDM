@@ -117,7 +117,8 @@ final class DownloadManager: ObservableObject {
     // MARK: - Public API
 
     @discardableResult
-    func addDownload(url: URL, suggestedName: String? = nil, startImmediately: Bool = true) -> DownloadTask {
+    func addDownload(url: URL, suggestedName: String? = nil, startImmediately: Bool = true,
+                     headers: [String: String]? = nil) -> DownloadTask {
         // The name can come from a web page, so reduce it to a safe single file name.
         let fileName = RequestSecurity.safeFileName(suggestedName ?? url.lastPathComponent)
         let category = DownloadCategory.categorize(fileName: fileName)
@@ -127,6 +128,7 @@ final class DownloadManager: ObservableObject {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 
         let task = DownloadTask(url: url, fileName: fileName, destinationFolder: folder)
+        task.requestHeaders = headers
         tasks.insert(task, at: 0)
         persistTasks()
 
@@ -138,10 +140,11 @@ final class DownloadManager: ObservableObject {
 
     /// Queues a video/stream download that yt-dlp resolves from a page or playlist URL.
     @discardableResult
-    func addMediaDownload(pageURL: URL, title: String, formatSelector: String, audioOnly: Bool, referer: String?) -> DownloadTask {
+    func addMediaDownload(pageURL: URL, title: String, formatSelector: String, audioOnly: Bool, referer: String?,
+                          headers: [String: String]? = nil) -> DownloadTask {
         let safeTitle = title.replacingOccurrences(of: "/", with: "-")
         let fileName = safeTitle + (audioOnly ? ".m4a" : ".mp4")
-        let task = addDownload(url: pageURL, suggestedName: fileName, startImmediately: false)
+        let task = addDownload(url: pageURL, suggestedName: fileName, startImmediately: false, headers: headers)
         task.mediaFormat = formatSelector
         task.mediaReferer = referer
         persistTasks()

@@ -157,7 +157,8 @@ final class NativeMessagingHost {
             title: title,
             formatSelector: selector,
             audioOnly: message["audioOnly"] as? Bool ?? false,
-            referer: message["referer"] as? String
+            referer: message["referer"] as? String,
+            headers: RequestSecurity.safeHeaders(message["headers"])
         )
         reply(["ok": true])
     }
@@ -172,7 +173,8 @@ final class NativeMessagingHost {
             reply(["ok": true, "skipped": true])
             return
         }
-        DownloadManager.shared.addDownload(url: url, suggestedName: message["suggestedFileName"] as? String)
+        DownloadManager.shared.addDownload(url: url, suggestedName: message["suggestedFileName"] as? String,
+                                           headers: RequestSecurity.safeHeaders(message["headers"]))
         reply(["ok": true])
     }
 }

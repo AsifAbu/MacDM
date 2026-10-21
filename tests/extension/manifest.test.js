@@ -12,9 +12,9 @@ test("Chrome manifest is Manifest V3 with a service worker", () => {
 });
 
 test("Chrome manifest asks only for the permissions it uses", () => {
-  assert.deepEqual([...chromeManifest.permissions].sort(), ["contextMenus", "downloads"]);
-  // Reach MacDM's local server only, not the whole web.
-  assert.deepEqual(chromeManifest.host_permissions, ["http://127.0.0.1/*"]);
+  assert.deepEqual([...chromeManifest.permissions].sort(), ["contextMenus", "downloads", "storage", "webRequest"]);
+  // Network watching needs every site (the content script already runs on every site).
+  assert.deepEqual(chromeManifest.host_permissions, ["<all_urls>"]);
 });
 
 test("every file the Chrome manifest references exists", () => {

@@ -24,9 +24,11 @@
   ],
   "permissions": [
     "downloads",
-    "contextMenus"
+    "contextMenus",
+    "webRequest",
+    "storage"
   ],
   "host_permissions": [
-    "http://127.0.0.1/*"
+    "<all_urls>"
   ]
 }

@@ -18,7 +18,8 @@ test("a browser download is sent to MacDM and cancelled in Chrome", async () => 
     url: "https://x.test/a.zip",
     sizeBytes: 5000000,
     suggestedFileName: "a.zip",
-    sourcePageURL: "https://x.test/"
+    sourcePageURL: "https://x.test/",
+    headers: { Referer: "https://x.test/" }   // so a protected server accepts MacDM's download
   });
   assert.deepEqual(calls.cancel, [7]);
   assert.deepEqual(calls.erase, [{ id: 7 }]);
@@ -108,7 +109,8 @@ test("the menu item sends the link as a forced download", async () => {
   listeners.menuClick({ menuItemId: id, linkUrl: "https://x.test/f.pdf" }, { url: "https://x.test/page" });
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(calls.fetch[0].body, {
-    action: "download", url: "https://x.test/f.pdf", forced: true, sourcePageURL: "https://x.test/page"
+    action: "download", url: "https://x.test/f.pdf", forced: true, sourcePageURL: "https://x.test/page",
+    headers: { Referer: "https://x.test/page" }
   });
 });
 

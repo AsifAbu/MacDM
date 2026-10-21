@@ -76,6 +76,8 @@ final class DownloadTask: Identifiable, ObservableObject, Codable, Hashable {
     /// yt-dlp format selector; non-nil marks a media (video page / HLS) download.
     @Published var mediaFormat: String?
     @Published var mediaReferer: String?
+    /// Headers from the browser (Referer, Cookie, User-Agent…) sent with every request for this file.
+    @Published var requestHeaders: [String: String]?
 
     var progress: Double {
         guard totalBytes > 0 else { return 0 }
@@ -107,7 +109,7 @@ final class DownloadTask: Identifiable, ObservableObject, Codable, Hashable {
         case id, url, fileName, destinationFolder, category, status,
              totalBytes, downloadedBytes, segments, dateAdded, dateCompleted,
              scheduledStart, retryCount, priority, supportsResume, eTag, lastModified,
-             mediaFormat, mediaReferer
+             mediaFormat, mediaReferer, requestHeaders
     }
 
     required init(from decoder: Decoder) throws {
@@ -131,6 +133,7 @@ final class DownloadTask: Identifiable, ObservableObject, Codable, Hashable {
         lastModified = try? c.decode(String.self, forKey: .lastModified)
         mediaFormat = try? c.decode(String.self, forKey: .mediaFormat)
         mediaReferer = try? c.decode(String.self, forKey: .mediaReferer)
+        requestHeaders = try? c.decode([String: String].self, forKey: .requestHeaders)
         // A download interrupted by quitting goes back to the queue and resumes on
         // launch. Paused, failed and cancelled tasks stay as the user left them.
         if status == .downloading { status = .queued }
@@ -157,5 +160,6 @@ final class DownloadTask: Identifiable, ObservableObject, Codable, Hashable {
         try c.encodeIfPresent(lastModified, forKey: .lastModified)
         try c.encodeIfPresent(mediaFormat, forKey: .mediaFormat)
         try c.encodeIfPresent(mediaReferer, forKey: .mediaReferer)
+        try c.encodeIfPresent(requestHeaders, forKey: .requestHeaders)
     }
 }

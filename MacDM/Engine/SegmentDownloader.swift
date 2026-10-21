@@ -15,6 +15,8 @@ final class SegmentDownloader: NSObject {
     /// without this lock, another segment can move the file position in between
     /// and the bytes land at the wrong offset (a silently corrupted file).
     private let writeLock: NSLock
+    /// Browser headers (Referer, Cookie…) sent with the request; servers that check them refuse a bare request.
+    private let extraHeaders: [String: String]
     private var session: URLSession!
     private var dataTask: URLSessionDataTask?
     private var currentOffset: Int64
@@ -25,7 +27,8 @@ final class SegmentDownloader: NSObject {
     private var bucketTokens: Double = 0
     private var lastRefill = Date()
 
-    init(segmentIndex: Int, url: URL, startByte: Int64, endByte: Int64, alreadyDownloaded: Int64, fileHandle: FileHandle, writeLock: NSLock) {
+    init(segmentIndex: Int, url: URL, startByte: Int64, endByte: Int64, alreadyDownloaded: Int64, fileHandle: FileHandle, writeLock: NSLock,
+         headers: [String: String] = [:]) {
         self.segmentIndex = segmentIndex
         self.url = url
         self.startByte = startByte
@@ -33,6 +36,7 @@ final class SegmentDownloader: NSObject {
         self.currentOffset = startByte + alreadyDownloaded
         self.fileHandle = fileHandle
         self.writeLock = writeLock
+        self.extraHeaders = headers
         super.init()
         self.session = URLSession(configuration: NetworkConfig.sessionConfiguration(), delegate: self, delegateQueue: nil)
     }
@@ -44,6 +48,7 @@ final class SegmentDownloader: NSObject {
             return
         }
         var request = URLRequest(url: url)
+        for (name, value) in extraHeaders { request.setValue(value, forHTTPHeaderField: name) }
         request.setValue("bytes=\(currentOffset)-\(endByte)", forHTTPHeaderField: "Range")
         dataTask = session.dataTask(with: request)
         dataTask?.resume()
