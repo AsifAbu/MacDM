@@ -112,3 +112,8 @@ data (`scripts/check-privacy.sh`), and writes `dist/MacDM.dmg`.
   after the download's id) permanently, not to the Trash. Downloads from older versions have no `workFolder`; for those
   it removes just their own `name.idmpart` and `name.idmmeta`. On launch, work folders that belong to no resumable
   download are removed. Tests: `WorkFolderTests`.
+- Names: `FileNaming.moveWithoutReplacing` is the only way a finished file enters the download folder. It picks the
+  first free name (`name`, `name (1)`, `name (2)`…) under a lock and never replaces a file; plain downloads and yt-dlp
+  videos both use it (a video finishes inside its hidden folder, then is moved in). A detected file whose link has no
+  file ending is named by the page script (`suggestedName` in `content.js`): the page title plus the ending from its
+  content type. Tests: `FileNamingTests` and the "naming a detected file" tests in `content.test.js`.

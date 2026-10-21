@@ -43,6 +43,10 @@ This is a one-time step:
   so on. Change this in **MacDM → Settings (Cmd+,) → General → Download location → Browse…**.
 - While a file downloads, your download folder stays clean: the unfinished data is kept in a hidden folder of
   MacDM's own, and the finished file is moved into your download folder when it completes. Nothing else is left behind.
+- A file never replaces one that is already there: if `Movie.mp4` exists, the new one is saved as `Movie (1).mp4`,
+  then `Movie (2).mp4`.
+- When the extension finds a video whose link has no real file name (just a long code), MacDM names the file after
+  the page's title, with the right ending (`.mp4`, `.mkv`, `.mp3`…).
 - The **✕** on a row cancels a running download and permanently deletes that download's unfinished data (it does not
   go to the Trash). Finished files are never touched. On a finished row, **✕** only removes the entry from the list;
   the file stays.
