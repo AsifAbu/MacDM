@@ -44,9 +44,14 @@ This is a one-time step:
 
 ## Videos
 
-Open a page with a video in a browser that has the MacDM extension, and a **Download this video** bar appears on the
-video. Click it, choose a quality, and MacDM does the rest. The bar has a small **✕** to hide it and can be dragged
+In Chrome with the MacDM extension, MacDM watches for video the way a download manager like IDM does: when a page
+plays a video, **even inside an embedded player**, a **Download this video** bar appears on it. Click it, choose a
+quality (or pick a detected file or stream), and MacDM does the rest. MacDM sends your browser's own cookies and
+referrer with the download, so sites that check them accept it. The bar has a small **✕** to hide it and can be dragged
 anywhere. Without the extension, paste the page address into **Add URL**.
+
+Videos protected by DRM (Netflix, Disney+ and similar) cannot be downloaded by any download manager, and some sites
+use links that only work once or only for your own connection.
 
 MacDM includes the video tools it needs ([yt-dlp](https://github.com/yt-dlp/yt-dlp) and
 [FFmpeg](https://ffmpeg.org)) and keeps yt-dlp up to date, because video sites change often. You can turn that off
