@@ -111,6 +111,9 @@ at `chrome://extensions`.
 | MacDM isn't in the Dock after installing | Run `killall Dock` in Terminal |
 | Chrome says `ERR_FILE_NOT_FOUND` for the extension | Remove it, then load the folder from Settings → Browser → Copy Extension Folder |
 | A video site says "confirm you're not a bot" | Settings → Browser → **Use cookies from** your browser (Safari also needs Full Disk Access) |
+| MacDM's icon stays in the Dock after I quit it | macOS shows recent apps there. Turn off **System Settings → Desktop & Dock → Show suggested and recent apps in Dock** |
+| **Uninstall MacDM…** is greyed out | You are running a copy from a disk image or Xcode. Quit it and open MacDM from the **Applications** folder |
+| The extension shows "Extension context invalidated" | You reloaded the extension while a page was open. Reload that page (the old script stops by itself) |
 | Several MacDM entries or old copies show up | Eject any leftover MacDM disk images, then run `scripts/clean-macdm-copies.sh --eject` |
 
 More in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
