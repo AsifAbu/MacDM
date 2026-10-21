@@ -28,6 +28,7 @@ function loadPage({ script = "ChromeExtension/content.js", api = "chrome", withV
   let currentDetected = detectedItems;
   window[api] = {
     runtime: {
+      id: "test-extension",
       sendMessage: async (message) => {
         if (message && message.type === "media-list") return { items: currentDetected, canGrab };
         sent.push(message);
@@ -425,4 +426,37 @@ test("a failed Grab says why, in the panel", async () => {
   [...panel.querySelectorAll("button")].find((b) => /Grab all files/.test(b.textContent)).click();
   await tick();
   assert.match(panel.textContent, /No downloadable files were found/);
+});
+
+// ---------- after the extension is reloaded ----------
+
+test("a script left in an open page after the extension was reloaded goes quiet instead of throwing", async () => {
+  const { dom, background } = loadPage({ withVideo: true });
+  const win = dom.window;
+  const api = win.chrome.runtime;
+  await tick();
+  assert.ok(win.document.documentElement.contains(win.__root.host), "the bar is there while the extension is alive");
+
+  // What Chrome does to the old script: the extension id disappears and every call throws.
+  api.id = undefined;
+  let calls = 0;
+  api.sendMessage = () => { calls++; throw new Error("Extension context invalidated."); };
+
+  assert.doesNotThrow(() => background.find([]));
+  await tick();
+  assert.equal(calls, 0, "it does not call the dead extension");
+  assert.ok(!win.document.documentElement.contains(win.__root.host), "its bar is removed");
+});
+
+test("clicking Download in an orphaned page explains what to do", async () => {
+  const { dom, downloadButton, panel } = loadPage({ detectedItems: [FILE] });
+  await tick();
+  downloadButton.click();
+  await tick();
+  dom.window.chrome.runtime.id = undefined;
+  const row = [...panel.querySelectorAll("button")].find((b) => b.textContent === "Download");
+  assert.ok(row, "the detected file has a Download button");
+  row.click();
+  await tick();
+  assert.match(row.title, /Reload this page/);
 });

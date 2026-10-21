@@ -31,7 +31,33 @@
 
   // ---------- messaging ----------
 
+  // When the extension is reloaded or updated, Chrome leaves the old script running in pages that were already
+  // open. Its connection to the extension is gone and every call throws "Extension context invalidated", so
+  // such a script stops its timers and removes its bar; a fresh script loads with the next page load.
+  const timers = [];
+
+  function extensionAlive() {
+    try { return !!chrome.runtime.id; } catch (_) { return false; }
+  }
+
+  function retire() {
+    timers.forEach(clearInterval);
+    host.remove();
+  }
+
+  /** setInterval that stops everything once the extension behind this script is gone. */
+  function every(callback, milliseconds) {
+    timers.push(setInterval(() => {
+      if (!extensionAlive()) { retire(); return; }
+      callback();
+    }, milliseconds));
+  }
+
   function native(payload) {
+    if (!extensionAlive()) {
+      retire();
+      return Promise.resolve({ ok: false, error: "MacDM's extension was updated. Reload this page." });
+    }
     return chrome.runtime
       .sendMessage({ type: "native", payload })
       .then((reply) => reply || { ok: false, error: "No reply from MacDM." })
@@ -41,6 +67,7 @@
   // Media the background script found by watching network traffic. Safari's background script doesn't
   // do this, so the reply is simply empty there.
   function refreshDetected() {
+    if (!extensionAlive()) { retire(); return Promise.resolve(); }
     return chrome.runtime.sendMessage({ type: "media-list" })
       .then((reply) => {
         const items = reply && Array.isArray(reply.items) ? reply.items : [];
@@ -249,7 +276,7 @@
     panel.style.left = `${clamp(panelLeft, 0, window.innerWidth - 100)}px`;
   }
 
-  setInterval(updatePosition, 700);
+  every(updatePosition, 700);
   window.addEventListener("scroll", updatePosition, { passive: true });
   window.addEventListener("resize", updatePosition);
   document.addEventListener("click", closePanel);
@@ -494,11 +521,11 @@
   }
 
   refreshDetected();
-  setInterval(refreshDetected, 3000);   // safety net in case a push message was missed
+  every(refreshDetected, 3000);   // safety net in case a push message was missed
 
   // Clear stale sniffing results when a single-page app navigates.
   let lastHref = location.href;
-  setInterval(() => {
+  every(() => {
     if (location.href !== lastHref) {
       lastHref = location.href;
       sniffed.clear();
