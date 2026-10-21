@@ -23,10 +23,22 @@ final class TestHTTPServer: @unchecked Sendable {
     private var _headCount = 0
     private var _getCount = 0
     private var _requests: [(method: String, headers: [String: String])] = []
+    private var _activeGets = Set<ObjectIdentifier>()   // connections currently downloading a body
+    private var _maxActiveGets = 0
     private(set) var port: UInt16 = 0
 
     var headCount: Int { lock.lock(); defer { lock.unlock() }; return _headCount }
     var getCount: Int { lock.lock(); defer { lock.unlock() }; return _getCount }
+
+    /// The most body downloads that were ever open at the same moment.
+    var maxConcurrentGets: Int { lock.lock(); defer { lock.unlock() }; return _maxActiveGets }
+
+    private func beginGet(_ connection: NWConnection) {
+        lock.lock(); _activeGets.insert(ObjectIdentifier(connection)); _maxActiveGets = max(_maxActiveGets, _activeGets.count); lock.unlock()
+    }
+    private func endGet(_ connection: NWConnection) {
+        lock.lock(); _activeGets.remove(ObjectIdentifier(connection)); lock.unlock()
+    }
 
     /// Every request received so far: the method and the headers (names in lower case).
     var requests: [(method: String, headers: [String: String])] { lock.lock(); defer { lock.unlock() }; return _requests }
@@ -116,13 +128,14 @@ final class TestHTTPServer: @unchecked Sendable {
         }
 
         lock.lock(); _getCount += 1; lock.unlock()
+        beginGet(connection)
         if !config.acceptRanges { isRange = false; rangeStart = 0; rangeEnd = total - 1 }
         let length = max(rangeEnd - rangeStart + 1, 0)
         var head = isRange ? "HTTP/1.1 206 Partial Content\r\n" : "HTTP/1.1 200 OK\r\n"
         if isRange { head += "Content-Range: bytes \(rangeStart)-\(rangeEnd)/\(total)\r\n" }
         head += "Content-Length: \(length)\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n"
         connection.send(content: Data(head.utf8), completion: .contentProcessed { [weak self] error in
-            guard error == nil else { connection.cancel(); return }
+            guard error == nil else { self?.endGet(connection); connection.cancel(); return }
             self?.sendBody(on: connection, from: rangeStart, to: rangeEnd)
         })
     }
@@ -130,12 +143,15 @@ final class TestHTTPServer: @unchecked Sendable {
     private func sendBody(on connection: NWConnection, from offset: Int, to end: Int) {
         guard offset <= end else {
             connection.send(content: nil, contentContext: .finalMessage, isComplete: true,
-                            completion: .contentProcessed { _ in connection.cancel() })
+                            completion: .contentProcessed { [weak self] _ in self?.endGet(connection); connection.cancel() })
             return
         }
         let upper = min(offset + config.chunkSize - 1, end)
+        // The download is over for counting purposes once the last byte is handed over: the client cannot
+        // finish (and start another piece) before that, so a delayed callback can't make us over-count.
+        if upper >= end { endGet(connection) }
         connection.send(content: Self.bytes(offset, upper), completion: .contentProcessed { [weak self] error in
-            guard let self, error == nil else { connection.cancel(); return }
+            guard let self, error == nil else { self?.endGet(connection); connection.cancel(); return }
             if self.config.chunkDelay > 0 {
                 self.queue.asyncAfter(deadline: .now() + self.config.chunkDelay) {
                     self.sendBody(on: connection, from: upper + 1, to: end)

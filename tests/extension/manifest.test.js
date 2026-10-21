@@ -12,7 +12,7 @@ test("Chrome manifest is Manifest V3 with a service worker", () => {
 });
 
 test("Chrome manifest asks only for the permissions it uses", () => {
-  assert.deepEqual([...chromeManifest.permissions].sort(), ["contextMenus", "downloads", "storage", "webRequest"]);
+  assert.deepEqual([...chromeManifest.permissions].sort(), ["contextMenus", "cookies", "downloads", "storage", "webRequest"]);
   // Network watching needs every site (the content script already runs on every site).
   assert.deepEqual(chromeManifest.host_permissions, ["<all_urls>"]);
 });

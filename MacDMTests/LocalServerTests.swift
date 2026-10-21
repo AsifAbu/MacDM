@@ -161,6 +161,46 @@ struct LocalServerTests {
         DownloadManager.shared.tasks.forEach { DownloadManager.shared.remove($0) }
     }
 
+    @Test("links sent from the browser open the Site Grabber, keeping only real files and safe headers")
+    func grabFromBrowser() async throws {
+        let (server, port) = try #require(await startServer())
+        defer { server.stop() }
+        SiteGrabberStore.shared.session = nil
+
+        let reply = try await send("POST", to: port, origin: extensionOrigin, body: json([
+            "action": "grab", "pageURL": "https://site.test/watch/1", "title": "A page",
+            "links": [
+                "https://cdn.test/a.mp4", ["url": "https://cdn.test/b.pdf", "text": "doc"],
+                "https://cdn.test/a.mp4",                 // repeat
+                "https://site.test/about",                // a page, not a file
+                "file:///etc/passwd", "javascript:alert(1)", "https://cdn.test/noext"
+            ],
+            "headers": ["Cookie": "s=1", "User-Agent": "TB/1", "Authorization": "secret"]
+        ]))
+        #expect(reply.json?["ok"] as? Bool == true)
+        #expect(reply.json?["count"] as? Int == 2)
+
+        #expect(await waitUntil { SiteGrabberStore.shared.session != nil })
+        let session = try #require(SiteGrabberStore.shared.session)
+        #expect(session.links.map(\.name) == ["a.mp4", "b.pdf"])
+        #expect(session.pageURL.absoluteString == "https://site.test/watch/1")
+        #expect(session.headers == ["Cookie": "s=1", "User-Agent": "TB/1"])
+        SiteGrabberStore.shared.session = nil
+    }
+
+    @Test("a grab with no usable page address or no files is refused")
+    func grabRefused() async throws {
+        let (server, port) = try #require(await startServer())
+        defer { server.stop() }
+        SiteGrabberStore.shared.session = nil
+
+        let noPage = try await send("POST", to: port, origin: extensionOrigin, body: json(["action": "grab", "pageURL": "file:///x", "links": ["https://cdn.test/a.mp4"]]))
+        #expect(noPage.json?["ok"] as? Bool == false)
+        let noFiles = try await send("POST", to: port, origin: extensionOrigin, body: json(["action": "grab", "pageURL": "https://site.test/", "links": ["https://site.test/about"]]))
+        #expect(noFiles.json?["ok"] as? Bool == false)
+        #expect(SiteGrabberStore.shared.session == nil)
+    }
+
     @Test("download_media without a format selector is rejected")
     func mediaNeedsSelector() async throws {
         let (server, port) = try #require(await startServer())

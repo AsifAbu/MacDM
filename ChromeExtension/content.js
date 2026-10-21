@@ -19,6 +19,7 @@
 
   const sniffed = new Map(); // url -> { url, stream }
   let detected = []; // media the extension's background found in network traffic (any frame): { url, kind, size, headers }
+  let canGrab = false; // true when the background script can send this page's links to MacDM's Site Grabber
   let panelOpen = false;
   let requestToken = 0;
   let lastFormatsURL = null;
@@ -42,8 +43,10 @@
     return chrome.runtime.sendMessage({ type: "media-list" })
       .then((reply) => {
         const items = reply && Array.isArray(reply.items) ? reply.items : [];
-        const changed = items.length !== detected.length;
+        const grabAvailable = !!(reply && reply.canGrab);
+        const changed = items.length !== detected.length || grabAvailable !== canGrab;
         detected = items;
+        canGrab = grabAvailable;
         if (changed) {
           updatePosition();
           if (panelOpen) render({ formats: lastFormats });
@@ -52,8 +55,35 @@
       .catch(() => {});
   }
 
-  chrome.runtime.onMessage.addListener((message) => {
-    if (message && message.type === "media-detected") refreshDetected();
+  // Every link on this page as the user sees it (after scripts ran), including inside shadow DOM.
+  function collectLinks() {
+    const urls = new Set();
+    function add(raw) {
+      if (!raw || /^(javascript|mailto|tel|data|blob):/i.test(raw)) return;
+      try {
+        const url = new URL(raw, location.href);
+        if (url.protocol === "http:" || url.protocol === "https:") { url.hash = ""; urls.add(url.href); }
+      } catch (_) { /* not an address */ }
+    }
+    function scan(root) {
+      for (const node of root.querySelectorAll("a[href], video, audio, source, img, link[href], [data-src], [data-url], [data-video-url], meta[content]")) {
+        add(node.getAttribute("href")); add(node.getAttribute("src")); add(node.getAttribute("data-src"));
+        add(node.getAttribute("data-url")); add(node.getAttribute("data-video-url")); add(node.getAttribute("poster"));
+        const srcset = node.getAttribute("srcset");
+        if (srcset) for (const part of srcset.split(",")) add(part.trim().split(/\s+/)[0]);
+        const property = (node.getAttribute("property") || node.getAttribute("name") || "").toLowerCase();
+        if (node.tagName === "META" && /og:(video|audio)|twitter:player:stream/.test(property)) add(node.getAttribute("content"));
+      }
+      for (const node of root.querySelectorAll("*")) if (node.shadowRoot) scan(node.shadowRoot);
+    }
+    scan(document);
+    return [...urls].slice(0, 5000);
+  }
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!message) return;
+    if (message.type === "media-detected") refreshDetected();
+    if (message.type === "collect-links") sendResponse({ links: collectLinks() });
   });
 
   // ---------- small DOM helpers ----------
@@ -375,6 +405,31 @@
     if (!formats && direct.length === 0) {
       panel.appendChild(el("div", { padding: "8px 0", color: "#9aa0a6" }, "No downloadable media found on this page yet. Play the video and try again."));
     }
+
+    if (canGrab) panel.appendChild(grabButton());
+  }
+
+  // Sends every file link on the page, with the browser's login, to MacDM's Site Grabber.
+  function grabButton() {
+    const wrap = el("div", { borderTop: "1px solid #3c4043", marginTop: "10px", paddingTop: "8px" });
+    const button = el("button", {
+      border: "1px solid #5f6368", borderRadius: "4px", padding: "5px 10px", cursor: "pointer",
+      background: "transparent", color: "#e8eaed", font: `600 12px ${FONT}`
+    }, "Grab all files on this page…");
+    button.addEventListener("click", () => {
+      button.textContent = "Collecting…";
+      button.disabled = true;
+      chrome.runtime.sendMessage({ type: "grab-page" })
+        .then((reply) => (reply || { ok: false, error: "No reply from MacDM." }))
+        .catch((error) => ({ ok: false, error: String((error && error.message) || error) }))
+        .then((reply) => {
+          button.textContent = reply.ok ? "Opened in MacDM ✓" : "Failed";
+          button.title = reply.ok ? "" : (reply.error || "");
+          if (!reply.ok) { button.disabled = false; button.style.borderColor = "#d93025"; }
+        });
+    });
+    wrap.appendChild(button);
+    return wrap;
   }
 
   // ---------- sniffing ----------

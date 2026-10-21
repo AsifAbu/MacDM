@@ -100,6 +100,10 @@ struct DownloadsSettingsTab: View {
                 Stepper("Downloads at the same time: \(manager.maxConcurrentDownloads)",
                         value: $manager.maxConcurrentDownloads, in: 1...10)
                     .onChange(of: manager.maxConcurrentDownloads) { _ in manager.processQueue() }
+                Stepper("Connections per download: \(manager.connectionsPerDownload)",
+                        value: $manager.connectionsPerDownload, in: DownloadManager.connectionsRange)
+                Text("More connections can be faster on sites that limit each one (up to about 3×), but past 8 there is rarely any gain and some sites slow down. 8 suits most.")
+                    .font(.caption).foregroundStyle(.secondary)
                 LabeledContent("Speed limit") {
                     HStack {
                         TextField("0", value: $manager.globalSpeedLimitKBs, format: .number)

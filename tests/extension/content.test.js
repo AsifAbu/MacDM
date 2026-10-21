@@ -14,7 +14,7 @@ const VIDEO_RECT = { width: 640, height: 360, top: 100, left: 100, right: 740, b
  * Loads content.js into a jsdom page that has one big <video>.
  * The script builds its UI in a closed shadow root, so we force it open to inspect it.
  */
-function loadPage({ script = "ChromeExtension/content.js", api = "chrome", withVideo = true, reply = { ok: false, error: "test" }, detectedItems = [] } = {}) {
+function loadPage({ script = "ChromeExtension/content.js", api = "chrome", withVideo = true, reply = { ok: false, error: "test" }, detectedItems = [], canGrab = false } = {}) {
   const dom = new JSDOM("<!doctype html><body>" + (withVideo ? "<video></video>" : "") + "</body>", {
     url: "https://example.test/watch",
     runScripts: "outside-only",
@@ -29,7 +29,7 @@ function loadPage({ script = "ChromeExtension/content.js", api = "chrome", withV
   window[api] = {
     runtime: {
       sendMessage: async (message) => {
-        if (message && message.type === "media-list") return { items: currentDetected };
+        if (message && message.type === "media-list") return { items: currentDetected, canGrab };
         sent.push(message);
         return reply;
       },
@@ -38,7 +38,9 @@ function loadPage({ script = "ChromeExtension/content.js", api = "chrome", withV
   };
   // What the background script does when it finds new media: update its list, then tell the page.
   const background = {
-    find(items) { currentDetected = items; pushListeners.forEach((fn) => fn({ type: "media-detected" })); }
+    find(items) { currentDetected = items; pushListeners.forEach((fn) => fn({ type: "media-detected" })); },
+    // A message from the background script that the page answers (like "collect-links").
+    ask(message) { return new Promise((resolve) => pushListeners.forEach((fn) => fn(message, {}, resolve))); }
   };
 
   // Open the closed shadow root so the test can look inside.
@@ -303,4 +305,77 @@ test("a page with no extension support (Safari) just gets no network finds", asy
   await tick();
   window.dispatchEvent(new window.Event("resize"));
   assert.equal(bar.style.display, "none");
+});
+
+// ---------- grabbing every file on the page ----------
+
+test("the page reports every link on it as the user sees it, including media tags, lazy images and shadow DOM", async () => {
+  const { dom, background } = loadPage({ withVideo: false });
+  const doc = dom.window.document;
+  doc.body.innerHTML = `
+    <a href="/files/a.zip">a</a> <a href="https://cdn.test/b.pdf#page=2">b</a> <a href="mailto:x@y.test">m</a>
+    <a href="javascript:void(0)">j</a> <a href="/files/a.zip">again</a>
+    <video src="/v/main.mp4" poster="/v/poster.jpg"><source src="/v/alt.webm"></video>
+    <img data-src="/lazy/p.jpg" srcset="/i/small.jpg 480w, /i/big.jpg 1080w">
+    <meta property="og:video" content="https://cdn.test/share.mp4">
+    <meta property="og:title" content="https://cdn.test/not-media">`;
+  const host = doc.createElement("div");
+  doc.body.appendChild(host);
+  host.attachShadow({ mode: "open" }).innerHTML = `<a href="/in/shadow.mp3">s</a>`;
+
+  const { links } = await background.ask({ type: "collect-links" });
+  for (const expected of [
+    "https://example.test/files/a.zip", "https://cdn.test/b.pdf", "https://example.test/v/main.mp4",
+    "https://example.test/v/poster.jpg", "https://example.test/v/alt.webm", "https://example.test/lazy/p.jpg",
+    "https://example.test/i/small.jpg", "https://example.test/i/big.jpg", "https://cdn.test/share.mp4",
+    "https://example.test/in/shadow.mp3"
+  ]) assert.ok(links.includes(expected), `missing ${expected}`);
+  assert.equal(links.filter((u) => u.endsWith("/files/a.zip")).length, 1, "listed once");
+  assert.ok(!links.some((u) => /^(mailto|javascript):/.test(u)));
+  assert.ok(!links.includes("https://cdn.test/not-media"), "only video/audio sharing tags are read");
+  assert.ok(links.every((u) => !u.includes("#")), "fragments are dropped");
+});
+
+test("the Grab button is shown only when the extension can send the page's links to MacDM", async () => {
+  for (const [canGrab, shown] of [[true, true], [false, false]]) {
+    const { downloadButton, panel } = loadPage({ canGrab });
+    await tick();
+    downloadButton.click();
+    await tick();
+    const grab = [...panel.querySelectorAll("button")].find((b) => /Grab all files/.test(b.textContent));
+    assert.equal(!!grab, shown, `canGrab=${canGrab}`);
+  }
+});
+
+test("the Grab button is there even when no video was found, so any page can be grabbed", async () => {
+  const { downloadButton, panel } = loadPage({ withVideo: false, detectedItems: [FILE], canGrab: true, reply: { ok: false, error: "x" } });
+  await tick();
+  downloadButton.click();
+  await tick();
+  assert.ok([...panel.querySelectorAll("button")].some((b) => /Grab all files/.test(b.textContent)));
+});
+
+test("clicking Grab asks the background to send the page's files to MacDM, and says so", async () => {
+  const { downloadButton, panel, sent } = loadPage({ withVideo: false, detectedItems: [FILE], canGrab: true, reply: { ok: true, count: 12, options: [] } });
+  await tick();
+  downloadButton.click();
+  await tick();
+  const grab = [...panel.querySelectorAll("button")].find((b) => /Grab all files/.test(b.textContent));
+  grab.click();
+  await tick();
+  assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1))), { type: "grab-page" });
+  assert.match(grab.textContent, /Opened in MacDM/);
+});
+
+test("if MacDM can't take the links, the button says Failed and shows why", async () => {
+  const { downloadButton, panel } = loadPage({ canGrab: true, reply: { ok: false, error: "No downloadable files were found on this page." } });
+  await tick();
+  downloadButton.click();
+  await tick();
+  const grab = [...panel.querySelectorAll("button")].find((b) => /Grab all files/.test(b.textContent));
+  grab.click();
+  await tick();
+  assert.equal(grab.textContent, "Failed");
+  assert.match(grab.title, /No downloadable files/);
+  assert.equal(grab.disabled, false, "the user can try again");
 });

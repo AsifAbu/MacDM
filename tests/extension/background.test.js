@@ -97,15 +97,24 @@ test("when MacDM is unreachable the page gets a friendly error", async () => {
 test("a 'Send to MacDM' menu item is created for links and media", () => {
   const { listeners, calls } = loadBackground();
   listeners.installed();
-  assert.equal(calls.menus.length, 1);
-  assert.equal(calls.menus[0].title, "Send to MacDM");
-  assert.deepEqual([...calls.menus[0].contexts].sort(), ["audio", "link", "video"]);
+  const send = calls.menus.find((m) => m.title === "Send to MacDM");
+  assert.ok(send);
+  assert.deepEqual([...send.contexts].sort(), ["audio", "link", "video"]);
+});
+
+test("a 'Grab all files on this page' menu item is created for pages", () => {
+  const { listeners, calls } = loadBackground();
+  listeners.installed();
+  const grab = calls.menus.find((m) => /Grab all files/.test(m.title));
+  assert.ok(grab);
+  assert.deepEqual([...grab.contexts], ["page"]);
+  assert.equal(calls.menus.length, 2);
 });
 
 test("the menu item sends the link as a forced download", async () => {
   const { listeners, calls } = loadBackground();
   listeners.installed();
-  const id = calls.menus[0].id;
+  const id = calls.menus.find((m) => m.title === "Send to MacDM").id;
   listeners.menuClick({ menuItemId: id, linkUrl: "https://x.test/f.pdf" }, { url: "https://x.test/page" });
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(calls.fetch[0].body, {
@@ -117,7 +126,7 @@ test("the menu item sends the link as a forced download", async () => {
 test("the menu item falls back to the media source URL", async () => {
   const { listeners, calls } = loadBackground();
   listeners.installed();
-  listeners.menuClick({ menuItemId: calls.menus[0].id, srcUrl: "https://x.test/clip.mp4" }, {});
+  listeners.menuClick({ menuItemId: calls.menus.find((m) => m.title === "Send to MacDM").id, srcUrl: "https://x.test/clip.mp4" }, {});
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(calls.fetch[0].body.url, "https://x.test/clip.mp4");
 });

@@ -50,6 +50,10 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .showAddDownloadSheet)) { _ in
             showAddSheet = true
         }
+        // Links sent from the browser open the Site Grabber.
+        .onReceive(SiteGrabberStore.shared.$session) { session in
+            if session != nil { showSiteGrabber = true }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .clipboardLinkDetected)) { note in
             if let url = note.object as? URL {
                 clipboardMonitor.pendingURL = url

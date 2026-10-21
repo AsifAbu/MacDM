@@ -37,10 +37,22 @@ This is a one-time step:
 - MacDM starts quietly. Click its icon in the Dock or in the menu bar, then **Open MacDM**.
 - **Add URL** downloads a link. **Site Grabber** lists the files on a web page. Copy a download link and MacDM
   offers to download it.
+- **Speed:** each download uses 8 connections by default and splits the file into more pieces than that, so a slow
+  connection doesn't hold the rest back. Change it in **Settings → Downloads** (1 to 32; above 8 rarely helps).
 - Downloads are saved in a **MacDM** folder inside your Downloads folder, sorted into Video, Music, Documents and
   so on. Change this in **MacDM → Settings (Cmd+,) → General → Download location → Browse…**.
 - The **✕** on a row cancels a running download. On a finished one it removes the entry from the list; the file stays.
 - Closing the window keeps MacDM running so it can catch downloads from your browser. **Cmd+Q** quits it.
+
+## Site Grabber
+
+Lists every file on a web page (or on the pages it links to, 1 or 2 levels deep, same site only) so you can pick
+what to download. Filter by type (video, audio, images, documents, archives…), by name and by minimum size, then
+**Select All** and **Download Selected**.
+
+For pages that need a login, open the page in Chrome and use the **Grab all files on this page…** button on the
+MacDM bar, or right-click the page and choose **Grab all files on this page with MacDM**. MacDM gets the page as you
+see it, and sends your browser's cookies only to that same site.
 
 ## Videos
 
@@ -66,7 +78,10 @@ in **Settings → Browser**.
 3. Click **Load unpacked** and choose the folder that opened (it is
    `~/Library/Application Support/MacDM/ChromeExtension`).
 
-After you update MacDM, press the reload arrow on the extension in Chrome once. Keep MacDM running while you browse.
+The extension asks for permission to see network requests (to find videos in any player) and cookies (so downloads
+work on sites you are signed in to). It only talks to MacDM on your own Mac.
+
+After you update MacDM, press the reload arrow on the extension in Chrome once and accept the new permissions. Keep MacDM running while you browse.
 
 ### Safari
 

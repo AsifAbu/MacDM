@@ -361,6 +361,8 @@ final class MediaDownloadJob {
     private var stopRequested = false
 
     var speedLimitBytesPerSec: Double = 0
+    /// How many pieces of an HLS/DASH stream yt-dlp fetches at the same time (it does one by one unless told).
+    var concurrentFragments = 8
     var onFinished: ((Result<Void, Error>) -> Void)?
 
     init(task: DownloadTask) {
@@ -384,6 +386,7 @@ final class MediaDownloadJob {
             "download:MACDMPROGRESS %(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress.speed)s",
             "--print", "after_move:MACDMFILE %(filepath)s",
             "-f", selector,
+            "-N", String(max(1, concurrentFragments)),
             "-P", task.destinationFolder.path,
             "-o", "%(title).150B\(Self.qualitySuffix(for: selector)).%(ext)s"
         ]

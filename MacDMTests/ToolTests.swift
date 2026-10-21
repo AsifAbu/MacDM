@@ -8,16 +8,27 @@ import Testing
 final class StubURLProtocol: URLProtocol {
     nonisolated(unsafe) static var responses: [String: (status: Int, body: Data)] = [:]
     nonisolated(unsafe) static var requested: [String] = []
+    /// Optional per-address extras: the Content-Type to report (default is a web page), and a Content-Length
+    /// to report instead of the body's size (for HEAD requests).
+    nonisolated(unsafe) static var contentTypes: [String: String] = [:]
+    nonisolated(unsafe) static var declaredSizes: [String: Int] = [:]
+    /// Every request seen: address, method and headers.
+    nonisolated(unsafe) static var seen: [(url: String, method: String, headers: [String: String])] = []
 
-    static func reset() { responses = [:]; requested = [] }
+    static func reset() { responses = [:]; requested = []; contentTypes = [:]; declaredSizes = [:]; seen = [] }
+
+    static func html(_ page: String) -> (status: Int, body: Data) { (200, Data(page.utf8)) }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let url = request.url!.absoluteString
         Self.requested.append(url)
+        Self.seen.append((url, request.httpMethod ?? "GET", request.allHTTPHeaderFields ?? [:]))
         let reply = Self.responses[url] ?? (404, Data())
-        let response = HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: "HTTP/1.1", headerFields: nil)!
+        let fields = ["Content-Type": Self.contentTypes[url] ?? "text/html; charset=utf-8",
+                      "Content-Length": String(Self.declaredSizes[url] ?? reply.body.count)]
+        let response = HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: "HTTP/1.1", headerFields: fields)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: reply.body)
         client?.urlProtocolDidFinishLoading(self)

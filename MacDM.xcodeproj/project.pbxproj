@@ -12,6 +12,7 @@
 		00CF1D0730869456004EF072 /* ToolUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00CF1D0630869456004EF072 /* ToolUpdater.swift */; };
 		00CF1D0F30874BBE004EF072 /* ChromeExtensionInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00CF1D0E30874BBE004EF072 /* ChromeExtensionInstaller.swift */; };
 		00CF1D153087889F004EF072 /* Uninstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00CF1D143087889F004EF072 /* Uninstaller.swift */; };
+		00CF1D19308880A7004EF072 /* SiteGrabber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00CF1D18308880A7004EF072 /* SiteGrabber.swift */; };
 		17483A19E572F44C3B87BFCB /* content.js in Resources */ = {isa = PBXBuildFile; fileRef = E085993BA59A932411599D8F /* content.js */; };
 		22B54A2EE631CD6D03C989F0 /* CredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2460E979D11836672E3C4300 /* CredentialStore.swift */; };
 		2F0B1469CEAD8E0C1858B4DD /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A7039484D262362BB6C2B49 /* DownloadManager.swift */; };
@@ -73,6 +74,7 @@
 		00CF1D0630869456004EF072 /* ToolUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolUpdater.swift; sourceTree = "<group>"; };
 		00CF1D0E30874BBE004EF072 /* ChromeExtensionInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromeExtensionInstaller.swift; sourceTree = "<group>"; };
 		00CF1D143087889F004EF072 /* Uninstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Uninstaller.swift; sourceTree = "<group>"; };
+		00CF1D18308880A7004EF072 /* SiteGrabber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiteGrabber.swift; sourceTree = "<group>"; };
 		038A87673ADFE5C1B0F3FFD5 /* AddDownloadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddDownloadView.swift; sourceTree = "<group>"; };
 		05C4607B218BD292FAABFB24 /* MediaDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaDownloader.swift; sourceTree = "<group>"; };
 		0F41F34DB1E01D1A5F03BA17 /* DownloadEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadEngine.swift; sourceTree = "<group>"; };
@@ -140,6 +142,7 @@
 				00CF1D0630869456004EF072 /* ToolUpdater.swift */,
 				00CF1D0E30874BBE004EF072 /* ChromeExtensionInstaller.swift */,
 				00CF1D143087889F004EF072 /* Uninstaller.swift */,
+				00CF1D18308880A7004EF072 /* SiteGrabber.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -378,6 +381,7 @@
 				404BEC589BA659D9DA792727 /* NetworkConfig.swift in Sources */,
 				B8BF22712AA28F20CE4BE113 /* SegmentDownloader.swift in Sources */,
 				658D97BEB794174526E79357 /* SettingsView.swift in Sources */,
+				00CF1D19308880A7004EF072 /* SiteGrabber.swift in Sources */,
 				00CF1D0F30874BBE004EF072 /* ChromeExtensionInstaller.swift in Sources */,
 				00CF1D153087889F004EF072 /* Uninstaller.swift in Sources */,
 				9677D9B3EA1DF7D3F064C900 /* SiteGrabberView.swift in Sources */,

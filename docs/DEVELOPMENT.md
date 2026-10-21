@@ -95,3 +95,13 @@ data (`scripts/check-privacy.sh`), and writes `dist/MacDM.dmg`.
   `RequestSecurity.chromeExtensionIDs`. A test checks the manifest key and the app agree.
 - yt-dlp ships as the multi-file build in `Contents/Resources/yt-dlp`, ffmpeg in `Contents/Helpers`. The single-file
   yt-dlp build took about 9 seconds to start on every run, which is why it is not used.
+- Speed: `DownloadEngine` runs a pool of `connectionsPerDownload` workers (default 8, 1 to 32) over more pieces than
+  connections (`pieceCount`). Measured against real servers, more than 8 gave no gain and slowed some servers down,
+  hence the default. yt-dlp jobs use `-N` for parallel fragments.
+- Browser downloads carry the browser's own Referer, Cookie and User-Agent (`DownloadTask.requestHeaders`, kept across
+  relaunches). Only those headers are accepted from the extension (`RequestSecurity.safeHeaders`).
+- The Chrome extension watches network traffic (`webRequest`) to find media in any frame and reads cookies (`cookies`)
+  for grabbing; both permissions are checked by `tests/extension/manifest.test.js`.
+- Site Grabber (`Services/SiteGrabber.swift`, `Views/SiteGrabberView.swift`): link extraction, same-site crawl to a
+  depth of 2, size probing and filters. Chrome sends the rendered page's links with the `grab` action; cookies are
+  only attached to links on the same site as the page.

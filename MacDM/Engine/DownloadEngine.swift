@@ -1,15 +1,23 @@
 import Foundation
 import Combine
 
-/// Orchestrates a single DownloadTask: probes the server, splits it into
-/// segments, runs them in parallel, merges progress, and handles retry.
+/// Orchestrates a single DownloadTask: probes the server, cuts the file into pieces,
+/// downloads them over several connections at once, merges progress, and handles retry.
+///
+/// There are more pieces than connections: whenever a connection finishes a piece it takes
+/// the next waiting one, so no connection sits idle while a slower one catches up.
 final class DownloadEngine {
     let task: DownloadTask
     private var segmentDownloaders: [SegmentDownloader] = []
     private var fileHandle: FileHandle?
     private let writeLock = NSLock() // shared with the segments, see SegmentDownloader
-    private let segmentCount: Int
-    private var activeSegments = 0
+    /// How many connections may run at the same time.
+    private let connections: Int
+    /// Guards the scheduling state below, which pieces report back into from several threads.
+    private let stateLock = NSLock()
+    private var waiting: [SegmentDownloader] = []   // pieces not started yet
+    private var running = 0                         // pieces downloading right now
+    private var totalSegments = 0
     private var finishedSegments = 0
     private var hasFailed = false
     private var progressTimer: Timer?
@@ -25,15 +33,26 @@ final class DownloadEngine {
         set { stopLock.lock(); _isStopped = newValue; stopLock.unlock() }
     }
 
+    /// The overall limit is shared by the connections that run at the same time.
+    private var simultaneousConnections: Int { max(1, min(connections, totalSegments == 0 ? connections : totalSegments)) }
+
     var speedLimitBytesPerSec: Double = 0 {
-        didSet { segmentDownloaders.forEach { $0.speedLimitBytesPerSec = speedLimitBytesPerSec / Double(max(segmentDownloaders.count, 1)) } }
+        didSet { segmentDownloaders.forEach { $0.speedLimitBytesPerSec = speedLimitBytesPerSec / Double(simultaneousConnections) } }
     }
 
     var onFinished: ((Result<Void, Error>) -> Void)?
 
-    init(task: DownloadTask, segmentCount: Int = 8) {
+    init(task: DownloadTask, connections: Int = 8) {
         self.task = task
-        self.segmentCount = segmentCount
+        self.connections = max(1, connections)
+    }
+
+    /// How many pieces to cut a file of this size into. Pieces are at least 512 KB; a large file gets
+    /// about three pieces per connection so that faster connections take on more of the work.
+    static func pieceCount(fileSize: Int64, connections: Int, acceptsRanges: Bool) -> Int {
+        guard acceptsRanges, fileSize > 1_048_576 else { return 1 }
+        let bySize = max(1, Int(fileSize / 524_288))
+        return max(min(connections, bySize), min(connections * 3, bySize))
     }
 
     // MARK: - Start / probe
@@ -97,7 +116,7 @@ final class DownloadEngine {
         }
         self.fileHandle = handle
 
-        let effectiveSegmentCount = (acceptsRanges && contentLength > 1_048_576) ? segmentCount : 1
+        let effectiveSegmentCount = Self.pieceCount(fileSize: contentLength, connections: connections, acceptsRanges: acceptsRanges)
 
         if task.segments.isEmpty {
             // Fresh download: split into even byte ranges.
@@ -112,7 +131,8 @@ final class DownloadEngine {
         }
 
         finishedSegments = task.segments.filter { $0.isComplete }.count
-        activeSegments = 0
+        totalSegments = task.segments.count
+        running = 0
 
         for seg in task.segments where !seg.isComplete {
             let downloader = SegmentDownloader(
@@ -125,7 +145,7 @@ final class DownloadEngine {
                 writeLock: writeLock,
                 headers: task.requestHeaders ?? [:]
             )
-            downloader.speedLimitBytesPerSec = speedLimitBytesPerSec / Double(max(effectiveSegmentCount, 1))
+            downloader.speedLimitBytesPerSec = speedLimitBytesPerSec / Double(simultaneousConnections)
             downloader.onProgress = { [weak self] bytes in
                 self?.handleProgress(segmentIndex: seg.index, bytes: bytes)
             }
@@ -133,7 +153,7 @@ final class DownloadEngine {
                 self?.handleSegmentComplete(segmentIndex: seg.index, result: result)
             }
             segmentDownloaders.append(downloader)
-            activeSegments += 1
+            waiting.append(downloader)
         }
 
         if segmentDownloaders.isEmpty {
@@ -142,8 +162,21 @@ final class DownloadEngine {
             return
         }
 
-        segmentDownloaders.forEach { $0.start() }
         startProgressTimer()
+        startWaitingPieces()
+    }
+
+    /// Starts waiting pieces until all the allowed connections are busy.
+    private func startWaitingPieces() {
+        var toStart: [SegmentDownloader] = []
+        stateLock.lock()
+        while running < connections, !waiting.isEmpty {
+            toStart.append(waiting.removeFirst())
+            running += 1
+        }
+        stateLock.unlock()
+        guard !isStopped else { return }
+        toStart.forEach { $0.start() }
     }
 
     // MARK: - Progress
@@ -180,12 +213,19 @@ final class DownloadEngine {
                     self.task.segments[idx].isComplete = true
                 }
             }
+            stateLock.lock()
+            running -= 1
             finishedSegments += 1
-            if finishedSegments >= segmentDownloaders.count + (task.segments.count - segmentDownloaders.count) {
+            let allDone = finishedSegments >= totalSegments
+            stateLock.unlock()
+            if allDone {
                 finishMergeAndComplete()
+            } else {
+                startWaitingPieces()   // this connection is free: give it the next piece
             }
         case .failure(let error):
             guard !hasFailed else { return }
+            stateLock.lock(); running -= 1; stateLock.unlock()
             if task.retryCount < maxRetries {
                 DispatchQueue.main.async { [weak self] in self?.task.retryCount += 1 }
                 let delay = pow(2.0, Double(task.retryCount))
@@ -207,10 +247,14 @@ final class DownloadEngine {
             endByte: seg.endByte, alreadyDownloaded: seg.downloadedBytes, fileHandle: handle,
             writeLock: writeLock, headers: task.requestHeaders ?? [:]
         )
+        downloader.speedLimitBytesPerSec = speedLimitBytesPerSec / Double(simultaneousConnections)
         downloader.onProgress = { [weak self] bytes in self?.handleProgress(segmentIndex: seg.index, bytes: bytes) }
         downloader.onComplete = { [weak self] result in self?.handleSegmentComplete(segmentIndex: seg.index, result: result) }
+        stateLock.lock()
         segmentDownloaders.append(downloader)
-        downloader.start()
+        waiting.insert(downloader, at: 0)   // a retried piece goes first
+        stateLock.unlock()
+        startWaitingPieces()
     }
 
     private func finishMergeAndComplete() {

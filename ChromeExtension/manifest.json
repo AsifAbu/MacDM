@@ -26,7 +26,8 @@
     "downloads",
     "contextMenus",
     "webRequest",
-    "storage"
+    "storage",
+    "cookies"
   ],
   "host_permissions": [
     "<all_urls>"

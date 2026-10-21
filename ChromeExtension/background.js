@@ -14,6 +14,7 @@
 
 const MACDM_ENDPOINT = "http://127.0.0.1:57643/api";
 const MENU_ID = "macdm-send";
+const GRAB_MENU_ID = "macdm-grab";
 
 // ---------- talking to MacDM ----------
 
@@ -185,8 +186,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "media-list") {
     const tabId = sender && sender.tab && sender.tab.id;
     if (tabId === undefined) { sendResponse({ items: [] }); return; }
-    loadTab(tabId).then((items) => sendResponse({ items }));
+    loadTab(tabId).then((items) => sendResponse({ items, canGrab: true }));
     return true; // keep the channel open for the async reply
+  }
+
+  if (message.type === "grab-page") {
+    grabPage(sender && sender.tab).then(sendResponse);
+    return true;
   }
 
   if (message.type === "native") {
@@ -194,6 +200,44 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 });
+
+// ---------- grabbing all the files on a page ----------
+
+/** What a download needs to look like the browser's own: the page, its identity and its cookies. */
+async function browserHeaders(pageUrl) {
+  const headers = { Referer: pageUrl, "User-Agent": navigator.userAgent };
+  try {
+    const cookies = await chrome.cookies.getAll({ url: pageUrl });
+    if (cookies.length) headers.Cookie = cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
+  } catch (_) {
+    // no cookie access: MacDM can still grab what needs no login
+  }
+  return headers;
+}
+
+/**
+ * Collects the links of the page as the user sees it (scripts run, logged in) and opens them in
+ * MacDM's Site Grabber, together with the browser's cookies so protected files can be downloaded.
+ */
+async function grabPage(tab) {
+  if (!tab || tab.id === undefined || !/^https?:/i.test(tab.url || "")) {
+    return { ok: false, error: "Open a web page first." };
+  }
+  let links = [];
+  try {
+    const reply = await chrome.tabs.sendMessage(tab.id, { type: "collect-links" }, { frameId: 0 });
+    links = (reply && Array.isArray(reply.links)) ? reply.links : [];
+  } catch (_) {
+    return { ok: false, error: "Reload the page, then try again." };
+  }
+  return sendToMacDM({
+    action: "grab",
+    pageURL: tab.url,
+    title: tab.title || "",
+    links,
+    headers: await browserHeaders(tab.url)
+  });
+}
 
 // ---------- download capture ----------
 
@@ -224,14 +268,22 @@ chrome.downloads.onCreated.addListener(async (item) => {
 // ---------- context menu ----------
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({
-    id: MENU_ID,
-    title: "Send to MacDM",
-    contexts: ["link", "video", "audio"]
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: MENU_ID,
+      title: "Send to MacDM",
+      contexts: ["link", "video", "audio"]
+    });
+    chrome.contextMenus.create({
+      id: GRAB_MENU_ID,
+      title: "Grab all files on this page with MacDM",
+      contexts: ["page"]
+    });
   });
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === GRAB_MENU_ID) { grabPage(tab); return; }
   if (info.menuItemId !== MENU_ID) return;
   const url = info.linkUrl || info.srcUrl;
   if (!url) return;

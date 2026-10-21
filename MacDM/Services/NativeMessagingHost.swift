@@ -105,6 +105,8 @@ final class NativeMessagingHost {
             handleFormats(message, reply: reply)
         case "download_media":
             handleMediaDownload(message, reply: reply)
+        case "grab":
+            handleGrab(message, reply: reply)
         default:
             handleFileDownload(message, reply: reply)
         }
@@ -121,6 +123,34 @@ final class NativeMessagingHost {
             return nil
         }
         return url
+    }
+
+    /// Links collected from the page the user is looking at in their browser (logged in, scripts run).
+    /// They open in the Site Grabber, where the user filters and picks what to download.
+    private func handleGrab(_ message: [String: Any], reply: ([String: Any]) -> Void) {
+        guard let pageString = message["pageURL"] as? String, let pageURL = RequestSecurity.webURL(from: pageString) else {
+            reply(["ok": false, "error": "Missing page address"])
+            return
+        }
+        var links: [GrabbedLink] = []
+        var seen = Set<URL>()
+        for item in ((message["links"] as? [Any]) ?? []).prefix(10_000) {
+            let text = (item as? String) ?? ((item as? [String: Any])?["url"] as? String)
+            // Only web addresses of real files; page links without a file ending are skipped.
+            guard let text, let url = RequestSecurity.webURL(from: text),
+                  GrabKind.knownExtensions.contains(url.pathExtension.lowercased()),
+                  seen.insert(url).inserted else { continue }
+            links.append(GrabbedLink(url: url, sourcePage: pageURL))
+            if links.count >= 3000 { break }
+        }
+        guard !links.isEmpty else {
+            reply(["ok": false, "error": "No downloadable files were found on this page."])
+            return
+        }
+        let title = (message["title"] as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(200)) } ?? (pageURL.host ?? "")
+        let session = GrabSession(pageURL: pageURL, title: title, links: links, headers: RequestSecurity.safeHeaders(message["headers"]))
+        Task { @MainActor in SiteGrabberStore.shared.present(session) }
+        reply(["ok": true, "count": links.count])
     }
 
     private func handleFormats(_ message: [String: Any], reply: @escaping ([String: Any]) -> Void) {

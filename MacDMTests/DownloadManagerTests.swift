@@ -263,6 +263,92 @@ struct DownloadEngineTests {
         #expect(try Data(contentsOf: task.finalDestinationURL) == server.expectedBody)
     }
 
+    @Test("never more connections at once than the setting allows, and the file is still exact")
+    func connectionLimit() async throws {
+        let server = try TestHTTPServer(.init(bodySize: 12_000_000, chunkSize: 32 * 1024, chunkDelay: 0.003))
+        defer { server.stop() }
+        let env = IsolatedManager()
+        defer { env.cleanUp() }
+        env.manager.connectionsPerDownload = 3
+
+        let task = env.manager.addDownload(url: server.url, suggestedName: "limited.bin")
+        #expect(await waitUntil(timeout: 60) { task.status == .completed })
+        #expect(try Data(contentsOf: task.finalDestinationURL) == server.expectedBody)
+        #expect(server.maxConcurrentGets <= 3, "\(server.maxConcurrentGets) connections were open at once")
+        #expect(server.maxConcurrentGets >= 2, "it should really download in parallel")
+        #expect(task.segments.count > 3, "more pieces than connections, so a quick connection can take more work")
+    }
+
+    @Test("a single connection still downloads the whole file correctly")
+    func oneConnection() async throws {
+        let server = try TestHTTPServer(.init(bodySize: 4_000_000))
+        defer { server.stop() }
+        let env = IsolatedManager()
+        defer { env.cleanUp() }
+        env.manager.connectionsPerDownload = 1
+
+        let task = env.manager.addDownload(url: server.url, suggestedName: "one.bin")
+        #expect(await waitUntil(timeout: 60) { task.status == .completed })
+        #expect(try Data(contentsOf: task.finalDestinationURL) == server.expectedBody)
+        #expect(server.maxConcurrentGets == 1)
+    }
+
+    @Test("many connections on a mid-sized file stay exact (stress)", arguments: Array(1...4))
+    func manyConnections(round: Int) async throws {
+        let server = try TestHTTPServer(.init(bodySize: 9_000_000, chunkSize: 8 * 1024))
+        defer { server.stop() }
+        let env = IsolatedManager()
+        defer { env.cleanUp() }
+        env.manager.connectionsPerDownload = 32
+
+        let task = env.manager.addDownload(url: server.url, suggestedName: "many-\(round).bin")
+        #expect(await waitUntil(timeout: 60) { task.status == .completed })
+        #expect(try Data(contentsOf: task.finalDestinationURL) == server.expectedBody)
+    }
+
+    @Test("pausing and resuming works with many pieces")
+    func pauseResumeManyPieces() async throws {
+        let server = try TestHTTPServer(.init(bodySize: 8_000_000, chunkSize: 16 * 1024, chunkDelay: 0.01))
+        defer { server.stop() }
+        let env = IsolatedManager()
+        defer { env.cleanUp() }
+        env.manager.connectionsPerDownload = 4
+
+        let task = env.manager.addDownload(url: server.url, suggestedName: "pieces.bin")
+        #expect(await waitUntil { task.downloadedBytes > 300_000 })
+        env.manager.pause(task)
+        env.manager.start(task)
+        #expect(await waitUntil(timeout: 90) { task.status == .completed })
+        #expect(try Data(contentsOf: task.finalDestinationURL) == server.expectedBody)
+    }
+
+    @Test("the connection setting is remembered, stays between 1 and 32, and applies after a relaunch")
+    func connectionSetting() {
+        let env = IsolatedManager()
+        defer { env.cleanUp() }
+        #expect(env.manager.connectionsPerDownload == 8, "default")
+        env.manager.connectionsPerDownload = 24
+        #expect(env.relaunch().connectionsPerDownload == 24)
+        env.manager.connectionsPerDownload = 99
+        #expect(env.manager.connectionsPerDownload == 32)
+        env.manager.connectionsPerDownload = 0
+        #expect(env.manager.connectionsPerDownload == 1)
+    }
+
+    @Test("pieces: one for small files or no resume support, several per connection for big files")
+    func pieceCounts() {
+        func pieces(_ size: Int64, _ connections: Int, ranges: Bool = true) -> Int {
+            DownloadEngine.pieceCount(fileSize: size, connections: connections, acceptsRanges: ranges)
+        }
+        #expect(pieces(500_000, 16) == 1)
+        #expect(pieces(50_000_000, 16, ranges: false) == 1)
+        #expect(pieces(3_000_000, 16) == 5, "pieces are at least 512 KB")
+        #expect(pieces(200_000_000, 16) == 48, "three pieces per connection")
+        #expect(pieces(200_000_000, 4) == 12)
+        #expect(pieces(200_000_000, 1) == 3)
+        #expect(pieces(200_000_000, 32) == 96)
+    }
+
     @Test("a server without range support downloads as a single piece")
     func noRangeSupport() async throws {
         let server = try TestHTTPServer(.init(bodySize: 3_000_000, acceptRanges: false))

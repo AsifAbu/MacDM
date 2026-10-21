@@ -115,6 +115,7 @@ extension SegmentDownloader: URLSessionDataDelegate {
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        session.finishTasksAndInvalidate()   // this piece is done; free its connection and session
         if let error = error {
             let nsError = error as NSError
             if nsError.code == NSURLErrorCancelled {

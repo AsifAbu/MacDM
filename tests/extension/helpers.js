@@ -11,9 +11,9 @@ const read = (...parts) => fs.readFileSync(file(...parts), "utf8");
  * Runs background.js against a mocked `chrome` API and a scripted `fetch`.
  * `reply` is what MacDM "answers": an object, or an Error to simulate the app not running.
  */
-function loadBackground({ reply = { ok: true }, script = "ChromeExtension/background.js" } = {}) {
+function loadBackground({ reply = { ok: true }, script = "ChromeExtension/background.js", cookies = [], collect = { links: [] } } = {}) {
   const listeners = {};
-  const calls = { fetch: [], cancel: [], erase: [], menus: [], badges: [], tabMessages: [] };
+  const calls = { fetch: [], cancel: [], erase: [], menus: [], badges: [], tabMessages: [], cookieQueries: [] };
   const session = {};   // stands in for chrome.storage.session
 
   const chrome = {
@@ -28,8 +28,15 @@ function loadBackground({ reply = { ok: true }, script = "ChromeExtension/backgr
     tabs: {
       onUpdated: { addListener: (fn) => (listeners.tabUpdated = fn) },
       onRemoved: { addListener: (fn) => (listeners.tabRemoved = fn) },
-      sendMessage: async (tabId, message, options) => { calls.tabMessages.push(JSON.parse(JSON.stringify({ tabId, message, options }))); }
+      sendMessage: async (tabId, message, options) => {
+        calls.tabMessages.push(JSON.parse(JSON.stringify({ tabId, message, options })));
+        if (message && message.type === "collect-links") {
+          if (collect === "fail") throw new Error("Could not establish connection. Receiving end does not exist.");
+          return JSON.parse(JSON.stringify(collect));
+        }
+      }
     },
+    cookies: { getAll: async (query) => { calls.cookieQueries.push(query.url); return cookies; } },
     storage: {
       session: {
         get: async (key) => (key in session ? { [key]: JSON.parse(JSON.stringify(session[key])) } : {}),
@@ -47,6 +54,7 @@ function loadBackground({ reply = { ok: true }, script = "ChromeExtension/backgr
       erase: async (query) => calls.erase.push(JSON.parse(JSON.stringify(query)))
     },
     contextMenus: {
+      removeAll: (done) => done && done(),
       create: (item) => calls.menus.push(item),
       onClicked: { addListener: (fn) => (listeners.menuClick = fn) }
     }
@@ -65,7 +73,7 @@ function loadBackground({ reply = { ok: true }, script = "ChromeExtension/backgr
     return { json: async () => reply };
   };
 
-  const context = vm.createContext({ chrome, browser, fetch, console, JSON, Promise, setTimeout, URL, Map, Date });
+  const context = vm.createContext({ chrome, browser, navigator: { userAgent: "TestBrowser/1.0" }, fetch, console, JSON, Promise, setTimeout, URL, Map, Date });
   vm.runInContext(read(script), context, { filename: script });
   return { listeners, calls, session, context };
 }
