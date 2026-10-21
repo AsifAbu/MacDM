@@ -263,14 +263,13 @@ final class DownloadEngine {
         guard !isStopped else { return }
         progressTimer?.invalidate()
         closeFile()
-        let dest = task.finalDestinationURL
         do {
-            if FileManager.default.fileExists(atPath: dest.path) {
-                try FileManager.default.removeItem(at: dest)
-            }
+            // A file with this name may already be there: keep it, and save this one as "name (1)".
             // Moving works across disks too (a copy, then the original is removed).
-            try FileManager.default.moveItem(at: task.partFileURL, to: dest)
+            let saved = try FileNaming.moveWithoutReplacing(task.partFileURL, as: task.fileName, into: task.destinationFolder)
             task.deleteUnfinishedFiles()   // nothing of this download stays behind
+            let savedName = saved.lastPathComponent
+            DispatchQueue.main.async { [task] in task.fileName = savedName }   // runs before finish() sets "completed"
             finish(.success(()))
         } catch {
             finish(.failure(error))

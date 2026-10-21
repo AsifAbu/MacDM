@@ -572,3 +572,99 @@ struct WorkFolderTests {
         relaunched.cancel(try #require(relaunched.tasks.first))
     }
 }
+
+// MARK: - Repeated names get (1), (2); nothing is ever replaced
+
+@Suite("File names never replace a finished file")
+struct FileNamingTests {
+    private func folder() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("MacDMNaming-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    @Test("a free name is used as it is")
+    func freeName() throws {
+        let dir = try folder(); defer { try? FileManager.default.removeItem(at: dir) }
+        #expect(FileNaming.freeURL(for: "Movie.mp4", in: dir).lastPathComponent == "Movie.mp4")
+    }
+
+    @Test("a taken name becomes (1), then (2), and skips numbers that are taken")
+    func numbering() throws {
+        let dir = try folder(); defer { try? FileManager.default.removeItem(at: dir) }
+        func make(_ name: String) { FileManager.default.createFile(atPath: dir.appendingPathComponent(name).path, contents: Data("x".utf8)) }
+        make("Movie.mp4")
+        #expect(FileNaming.freeURL(for: "Movie.mp4", in: dir).lastPathComponent == "Movie (1).mp4")
+        make("Movie (1).mp4")
+        #expect(FileNaming.freeURL(for: "Movie.mp4", in: dir).lastPathComponent == "Movie (2).mp4")
+        make("Movie (3).mp4")
+        #expect(FileNaming.freeURL(for: "Movie.mp4", in: dir).lastPathComponent == "Movie (2).mp4")
+    }
+
+    @Test("names with no ending and with two-part endings are numbered sensibly")
+    func odd() throws {
+        let dir = try folder(); defer { try? FileManager.default.removeItem(at: dir) }
+        func make(_ name: String) { FileManager.default.createFile(atPath: dir.appendingPathComponent(name).path, contents: Data("x".utf8)) }
+        make("README"); make("backup.tar.gz")
+        #expect(FileNaming.freeURL(for: "README", in: dir).lastPathComponent == "README (1)")
+        #expect(FileNaming.freeURL(for: "backup.tar.gz", in: dir).lastPathComponent == "backup (1).tar.gz")
+    }
+
+    @Test("moving a file in never replaces the one that is there")
+    func moveKeepsExisting() throws {
+        let dir = try folder(); defer { try? FileManager.default.removeItem(at: dir) }
+        let existing = dir.appendingPathComponent("a.bin")
+        try Data("old".utf8).write(to: existing)
+        let incoming = dir.appendingPathComponent("incoming.tmp")
+        try Data("new".utf8).write(to: incoming)
+
+        let saved = try FileNaming.moveWithoutReplacing(incoming, as: "a.bin", into: dir)
+
+        #expect(saved.lastPathComponent == "a (1).bin")
+        #expect(try Data(contentsOf: existing) == Data("old".utf8))
+        #expect(try Data(contentsOf: saved) == Data("new".utf8))
+        #expect(!FileManager.default.fileExists(atPath: incoming.path))
+    }
+
+    @Test("downloading the same name again keeps the first file and saves the second as (1), then (2)")
+    func repeatedDownloads() async throws {
+        let server = try TestHTTPServer(.init(bodySize: 400_000, chunkSize: 64 * 1024, chunkDelay: 0.005))
+        defer { server.stop() }
+        let env = IsolatedManager()
+        defer { env.cleanUp() }
+
+        let first = env.manager.addDownload(url: server.url, suggestedName: "same.bin")
+        #expect(await waitUntil(timeout: 30) { first.status == .completed })
+        let second = env.manager.addDownload(url: server.url, suggestedName: "same.bin")
+        #expect(await waitUntil(timeout: 30) { second.status == .completed })
+        let third = env.manager.addDownload(url: server.url, suggestedName: "same.bin")
+        #expect(await waitUntil(timeout: 30) { third.status == .completed })
+
+        #expect(first.fileName == "same.bin")
+        #expect(second.fileName == "same (1).bin")
+        #expect(third.fileName == "same (2).bin")
+        for task in [first, second, third] {
+            #expect(try Data(contentsOf: task.finalDestinationURL) == server.expectedBody)
+        }
+    }
+
+    @Test("a file already in the folder is never overwritten by a download of the same name")
+    func existingFileSurvives() async throws {
+        let server = try TestHTTPServer(.init(bodySize: 400_000, chunkSize: 64 * 1024, chunkDelay: 0.005))
+        defer { server.stop() }
+        let env = IsolatedManager()
+        defer { env.cleanUp() }
+
+        let task = env.manager.addDownload(url: server.url, suggestedName: "mine.bin", startImmediately: false)
+        try FileManager.default.createDirectory(at: task.destinationFolder, withIntermediateDirectories: true)
+        let precious = task.destinationFolder.appendingPathComponent("mine.bin")
+        try Data("my own file".utf8).write(to: precious)
+
+        env.manager.start(task)
+        #expect(await waitUntil(timeout: 30) { task.status == .completed })
+
+        #expect(try Data(contentsOf: precious) == Data("my own file".utf8))
+        #expect(task.fileName == "mine (1).bin")
+        #expect(try Data(contentsOf: task.finalDestinationURL) == server.expectedBody)
+    }
+}

@@ -399,6 +399,30 @@
     ].filter(Boolean).join(" · ");
   }
 
+  // A video link often ends in a hash with no ".mp4" (https://cdn.test/92af9fb0-82fb501e). Saving it under that
+  // name gives a file nothing recognises, so such a file is named after the page, with the ending its
+  // content type says.
+  const TYPE_EXTENSIONS = {
+    "video/mp4": "mp4", "video/x-m4v": "m4v", "video/webm": "webm", "video/x-matroska": "mkv",
+    "video/quicktime": "mov", "video/ogg": "ogv", "video/mpeg": "mpg",
+    "audio/mpeg": "mp3", "audio/mp3": "mp3", "audio/mp4": "m4a", "audio/x-m4a": "m4a", "audio/aac": "aac",
+    "audio/ogg": "ogg", "audio/opus": "opus", "audio/flac": "flac", "audio/wav": "wav", "audio/x-wav": "wav"
+  };
+  const KNOWN_ENDING = /\.(mp4|m4v|webm|mkv|mov|avi|flv|ogv|mpg|mp3|m4a|aac|ogg|opus|flac|wav)$/i;
+
+  function cleanTitle(text) {
+    return String(text || "").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 150);
+  }
+
+  function suggestedName(item) {
+    const fromUrl = displayName(item);
+    if (item.kind !== "file" || KNOWN_ENDING.test(fromUrl)) return fromUrl;
+    const type = String(item.contentType || "").split(";")[0].trim().toLowerCase();
+    const ending = TYPE_EXTENSIONS[type] || (type.startsWith("video/") ? "mp4" : type.startsWith("audio/") ? "m4a" : "");
+    if (!ending) return fromUrl;   // no way to tell what it is: leave it as the link names it
+    return `${cleanTitle(document.title) || fromUrl}.${ending}`;
+  }
+
   function displayName(item) {
     try {
       return decodeURIComponent(item.url.split("?")[0].split("/").pop() || item.url);
@@ -457,7 +481,7 @@
     if (direct.length > 0) {
       panel.appendChild(sectionTitle("Detected media on this page"));
       for (const item of direct.slice(0, 8)) {
-        const name = displayName(item);
+        const name = suggestedName(item);
         lookUpStream(item);
         const detail = streamDetail(item);
         panel.appendChild(actionRow(name, detail, () => downloadFind(item, name)));

@@ -460,3 +460,63 @@ test("clicking Download in an orphaned page explains what to do", async () => {
   await tick();
   assert.match(row.title, /Reload this page/);
 });
+
+// ---------- naming a detected file ----------
+
+async function openAndClickDownload({ item, title }) {
+  const page = loadPage({ withVideo: false, detectedItems: [item], reply: { ok: true, options: [] } });
+  if (title !== undefined) page.dom.window.document.title = title;
+  await tick();
+  page.downloadButton.click();
+  await tick();
+  const row = [...page.panel.querySelectorAll("button")].find((b) => b.textContent === "Download");
+  assert.ok(row, "the detected file has a Download button");
+  row.click();
+  await tick();
+  const sentDownload = page.sent.map((m) => m.payload).filter(Boolean).find((p) => p.action === "download");
+  return { page, sentDownload };
+}
+
+const HASH_URL = "https://fast-stream.test/92af9fb0-82fb501e-4d796360-c5844d51";
+
+test("a video link that ends in a hash is saved under the page's title, with .mp4 from its content type", async () => {
+  const { page, sentDownload } = await openAndClickDownload({
+    item: { url: HASH_URL, kind: "file", size: 9e8, contentType: "video/mp4", headers: {} }, title: "My Movie"
+  });
+  assert.equal(sentDownload.suggestedFileName, "My Movie.mp4");
+  assert.match(page.panel.textContent, /My Movie\.mp4/, "the panel shows the same name");
+});
+
+test("the ending follows the content type", async () => {
+  for (const [type, ending] of [["video/webm", "webm"], ["video/x-matroska", "mkv"], ["audio/mpeg", "mp3"], ["audio/mp4", "m4a"], ["video/something-new", "mp4"]]) {
+    const { sentDownload } = await openAndClickDownload({
+      item: { url: HASH_URL, kind: "file", size: 9e8, contentType: type, headers: {} }, title: "Clip"
+    });
+    assert.equal(sentDownload.suggestedFileName, `Clip.${ending}`, type);
+  }
+});
+
+test("characters a file name can't hold are removed from the page title", async () => {
+  const { sentDownload } = await openAndClickDownload({
+    item: { url: HASH_URL, kind: "file", size: 9e8, contentType: "video/mp4", headers: {} }, title: 'Part 1/2: "Best" <show>? | Site'
+  });
+  assert.equal(sentDownload.suggestedFileName, "Part 1 2 Best show Site.mp4");
+});
+
+test("a link that already ends in a media file name keeps it", async () => {
+  const { sentDownload } = await openAndClickDownload({
+    item: { url: "https://cdn.test/files/episode-04.mkv", kind: "file", size: 9e8, contentType: "video/x-matroska", headers: {} }, title: "Some Page"
+  });
+  assert.equal(sentDownload.suggestedFileName, "episode-04.mkv");
+});
+
+test("without a page title or a known type, the link's own name is used rather than something invented", async () => {
+  const noTitle = await openAndClickDownload({
+    item: { url: HASH_URL, kind: "file", size: 9e8, contentType: "video/mp4", headers: {} }, title: ""
+  });
+  assert.equal(noTitle.sentDownload.suggestedFileName, "92af9fb0-82fb501e-4d796360-c5844d51.mp4");
+  const noType = await openAndClickDownload({
+    item: { url: HASH_URL, kind: "file", size: 9e8, contentType: "", headers: {} }, title: "My Movie"
+  });
+  assert.equal(noType.sentDownload.suggestedFileName, "92af9fb0-82fb501e-4d796360-c5844d51");
+});

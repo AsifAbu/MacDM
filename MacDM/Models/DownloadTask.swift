@@ -185,3 +185,38 @@ final class DownloadTask: Identifiable, ObservableObject, Codable, Hashable {
         try c.encodeIfPresent(workFolder, forKey: .workFolder)
     }
 }
+
+/// Picks file names that never replace a finished file: a repeat becomes "Movie (1).mp4", "Movie (2).mp4"…
+enum FileNaming {
+    private static let lock = NSLock()
+
+    /// The first of `name`, `name (1)`, `name (2)`… that does not exist yet in `folder`.
+    static func freeURL(for name: String, in folder: URL, fileManager: FileManager = .default) -> URL {
+        let first = folder.appendingPathComponent(name)
+        guard fileManager.fileExists(atPath: first.path) else { return first }
+        var stem = (name as NSString).deletingPathExtension
+        var ext = (name as NSString).pathExtension
+        // "archive.tar.gz" counts as one ending, so the number goes before ".tar".
+        if stem.lowercased().hasSuffix(".tar") {
+            stem = (stem as NSString).deletingPathExtension
+            ext = "tar." + ext
+        }
+        var number = 1
+        while true {
+            let numbered = ext.isEmpty ? "\(stem) (\(number))" : "\(stem) (\(number)).\(ext)"
+            let candidate = folder.appendingPathComponent(numbered)
+            if !fileManager.fileExists(atPath: candidate.path) { return candidate }
+            number += 1
+        }
+    }
+
+    /// Moves `source` into `folder` under a free name and returns where it ended up. Two downloads finishing
+    /// at the same moment cannot pick the same name, and an existing file is never replaced.
+    static func moveWithoutReplacing(_ source: URL, as name: String, into folder: URL) throws -> URL {
+        lock.lock()
+        defer { lock.unlock() }
+        let target = freeURL(for: name, in: folder)
+        try FileManager.default.moveItem(at: source, to: target)
+        return target
+    }
+}

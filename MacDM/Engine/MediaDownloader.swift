@@ -391,10 +391,11 @@ final class MediaDownloadJob {
             "--print", "after_move:MACDMFILE %(filepath)s",
             "-f", selector,
             "-N", String(max(1, concurrentFragments)),
-            "-P", task.destinationFolder.path,
+            // A new download finishes inside its own hidden folder and is then moved into the download folder under
+            // a free name (see complete). Older downloads write straight into the download folder.
+            "-P", (task.workFolder ?? task.destinationFolder).path,
             "-o", Self.outputTemplate(for: task, selector: selector)
         ]
-        if let work = task.workFolder { args += ["-P", "temp:\(work.path)"] }
         args += MediaTools.cookieArguments
         if selector.contains("+") { args += ["--merge-output-format", "mp4"] }
         if let ffmpeg = MediaTools.find("ffmpeg") {
@@ -541,7 +542,16 @@ final class MediaDownloadJob {
     private func complete(finalPath: String?) {
         MediaInfoCache.remove(for: task.url)
         if let finalPath {
-            let url = URL(fileURLWithPath: finalPath)
+            var url = URL(fileURLWithPath: finalPath)
+            if task.workFolder != nil, FileManager.default.fileExists(atPath: finalPath) {
+                // Never replace a file that is already in the download folder: a repeat becomes "name (1)".
+                do {
+                    url = try FileNaming.moveWithoutReplacing(url, as: url.lastPathComponent, into: task.destinationFolder)
+                } catch {
+                    fail(error)   // the finished file stays safe in the hidden folder
+                    return
+                }
+            }
             task.fileName = url.lastPathComponent
             task.category = DownloadCategory.categorize(fileName: task.fileName)
             let size = (try? FileManager.default.attributesOfItem(atPath: finalPath)[.size] as? Int64) ?? nil
