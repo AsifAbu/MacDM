@@ -330,11 +330,16 @@ struct MediaOptionsTests {
 
     @Test("yt-dlp bot-check and cookie errors become actionable messages")
     func friendlyErrors() {
-        #expect(MediaError.fromYtDlp("ERROR: Sign in to confirm you're not a bot").errorDescription?.contains("Settings") == true)
+        // With no browser chosen, the advice names the setting; with one chosen, it says it is already in use.
+        let noBrowser = MediaError.fromYtDlp("ERROR: Sign in to confirm you're not a bot", cookiesBrowser: "none").errorDescription ?? ""
+        #expect(noBrowser.contains("Settings") && noBrowser.contains("Chrome"))
+        let withBrowser = MediaError.fromYtDlp("ERROR: Sign in to confirm you're not a bot", cookiesBrowser: "chrome").errorDescription ?? ""
+        #expect(withBrowser.contains("already using your Chrome cookies"))
         // The advice names the browser setting, and no longer sends Chrome users to Safari only.
-        let botCheck = MediaError.fromYtDlp("ERROR: Sign in to confirm you're not a bot").errorDescription ?? ""
-        #expect(botCheck.contains("Chrome") || botCheck.contains("already using"))
         #expect(MediaError.fromYtDlp("ERROR: [Cookies] Operation not permitted").errorDescription?.contains("Full Disk Access") == true)
+        // Chrome's folder exists but macOS hides it: yt-dlp says "could not find", the advice says what to do.
+        let hidden = MediaError.fromYtDlp("ERROR: could not find chrome cookies database in \"/Users/x/Library/Application Support/Google/Chrome\"").errorDescription ?? ""
+        #expect(hidden.contains("Full Disk Access") && hidden.contains("reopen"))
         #expect(MediaError.fromYtDlp("ERROR: Video unavailable").errorDescription == "Video unavailable")
     }
 }

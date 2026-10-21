@@ -9,18 +9,22 @@ enum MediaError: LocalizedError {
     case badOutput
 
     /// Wraps a yt-dlp stderr line, replacing known cookie/bot-check failures with actionable advice.
-    static func fromYtDlp(_ line: String) -> MediaError {
+    /// `cookiesBrowser` is the "Use cookies from" setting; it decides which advice a bot check gets.
+    static func fromYtDlp(_ line: String, cookiesBrowser: String = UserDefaults.standard.string(forKey: "cookiesBrowser") ?? "none") -> MediaError {
         let cleaned = line.replacingOccurrences(of: "ERROR: ", with: "")
         if cleaned.contains("not a bot") {
             // YouTube's own check. Using the cookies of a browser that is signed in to YouTube normally clears it.
-            let current = UserDefaults.standard.string(forKey: "cookiesBrowser") ?? "none"
+            let current = cookiesBrowser
             let advice = current == "none"
                 ? "In MacDM Settings → Browser, choose the browser you are signed in to YouTube with (for example Chrome) under \"Use cookies from\", allow the Keychain prompt if macOS asks, then try again."
                 : "MacDM is already using your \(current.capitalized) cookies. Open YouTube in that browser, make sure you are signed in (and pass any check it shows), then try again in a few minutes."
-            return .extractionFailed("YouTube is asking to confirm you're not a bot. " + advice + " (Safari also needs Full Disk Access for MacDM.)")
+            return .extractionFailed("YouTube is asking to confirm you're not a bot. " + advice + " (macOS may also ask you to allow MacDM under Full Disk Access.)")
         }
-        if cleaned.contains("Operation not permitted") && cleaned.contains("Cookies") {
-            return .extractionFailed("MacDM can't read your browser cookies. Grant Full Disk Access in System Settings → Privacy & Security, then restart MacDM.")
+        // macOS hides a browser's data folder from apps without Full Disk Access; yt-dlp then says it "could not
+        // find" the cookie database, although the folder is there.
+        let cookieDatabaseUnreadable = cleaned.contains("could not find") && cleaned.contains("cookies database")
+        if cookieDatabaseUnreadable || (cleaned.contains("Operation not permitted") && cleaned.contains("Cookies")) {
+            return .extractionFailed("MacDM can't read your browser's cookies because macOS keeps that folder private. Turn on MacDM in System Settings → Privacy & Security → Full Disk Access (Settings → Browser has a button for it), then quit and reopen MacDM.")
         }
         return .extractionFailed(cleaned)
     }
