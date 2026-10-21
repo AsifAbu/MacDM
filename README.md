@@ -73,10 +73,10 @@ in **Settings → Browser**.
 
 ### Chrome
 
-1. In MacDM, open **Settings → Browser → Show Extension Folder**.
-2. In Chrome, go to `chrome://extensions` and turn on **Developer mode** (top right).
-3. Click **Load unpacked** and choose the folder that opened (it is
-   `~/Library/Application Support/MacDM/ChromeExtension`).
+1. In MacDM, open **Settings → Browser** and click **Copy Extension Folder**. MacDM copies the folder's path.
+2. Click **Open Chrome…** (or go to `chrome://extensions` yourself) and turn on **Developer mode** (top right).
+3. Click **Load unpacked**, press **⌘ + Shift + G**, paste the copied path, press **Return**, then click **Select**.
+   (The folder is `~/Library/Application Support/MacDM/ChromeExtension`.)
 
 The extension asks for permission to see network requests (to find videos in any player) and cookies (so downloads
 work on sites you are signed in to). It only talks to MacDM on your own Mac.
@@ -109,7 +109,7 @@ at `chrome://extensions`.
 |---|---|
 | "MacDM can't be opened" the first time | System Settings → Privacy & Security → **Open Anyway** |
 | MacDM isn't in the Dock after installing | Run `killall Dock` in Terminal |
-| Chrome says `ERR_FILE_NOT_FOUND` for the extension | Remove it, then load the folder shown in Settings → Browser → Show Extension Folder |
+| Chrome says `ERR_FILE_NOT_FOUND` for the extension | Remove it, then load the folder from Settings → Browser → Copy Extension Folder |
 | A video site says "confirm you're not a bot" | Settings → Browser → **Use cookies from** your browser (Safari also needs Full Disk Access) |
 | Several MacDM entries or old copies show up | Eject any leftover MacDM disk images, then run `scripts/clean-macdm-copies.sh --eject` |
 

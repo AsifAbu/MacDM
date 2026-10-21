@@ -137,6 +137,7 @@ struct BrowserSettingsTab: View {
     @State private var ytDlpVersion: String?
     @State private var updateStatus = ""
     @State private var isChecking = false
+    @State private var copiedExtensionPath: String?
 
     /// The stable copy of the Chrome extension (refreshed from the app each time).
     private var chromeExtensionFolder: URL? {
@@ -152,24 +153,24 @@ struct BrowserSettingsTab: View {
     var body: some View {
         Form {
             Section("Browser extensions") {
-                LabeledContent("Safari") {
-                    Button("Open Safari Extensions…") {
-                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.extensions")!)
-                    }
-                }
                 LabeledContent("Chrome") {
                     HStack {
-                        Button("Show Extension Folder") {
-                            if let folder = chromeExtensionFolder { NSWorkspace.shared.open(folder) }
-                        }
+                        Button("Copy Extension Folder") { copyExtensionFolderPath() }
                         .disabled(chromeExtensionFolder == nil)
                         Button("Open Chrome…") { openChromeExtensions() }
                             .disabled(chromeAppURL == nil)
                     }
                 }
-                Text("Safari: turn on MacDM in the list.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Text("Chrome: turn on Developer mode, click “Load unpacked”, and choose the folder that “Show Extension Folder” opens. MacDM keeps that folder up to date; after updating MacDM, press Reload on the extension in Chrome.")
+                if let path = copiedExtensionPath {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("Copied the extension folder path", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Text(path).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                        Text("Click “Open Chrome…”, turn on Developer mode, click “Load unpacked”, press ⌘ + Shift + G, paste the copied path, press Return, then click “Select”.")
+                    }
+                    .font(.caption)
+                }
+                Text("Chrome: use “Copy Extension Folder”, then load that folder with “Load unpacked”. MacDM keeps the folder up to date; after updating MacDM, press Reload on the extension in Chrome.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -202,6 +203,14 @@ struct BrowserSettingsTab: View {
         }
         .formStyle(.grouped)
         .task { await refreshVersion() }
+    }
+
+    /// Puts the extension folder's path on the clipboard, for the “Go to folder” box of Chrome's file chooser.
+    private func copyExtensionFolderPath() {
+        guard let folder = chromeExtensionFolder else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(folder.path, forType: .string)
+        copiedExtensionPath = folder.path
     }
 
     private func openChromeExtensions() {
