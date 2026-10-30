@@ -370,7 +370,9 @@
 
   // ---- the "Choose quality" list: quality name | resolution | size | Download ----
 
-  const QUALITY_COLUMNS = "minmax(78px, 1.2fr) 92px 62px auto";
+  // Every column has a fixed width except the first, and the heading row uses the same ones. An "auto" last column
+  // would shrink to nothing in the heading (its cell is empty) and push "Resolution" and "Size" out of line.
+  const QUALITY_COLUMNS = "minmax(78px, 1.2fr) 92px 62px 84px";
 
   /** A plain name for a picture size. The shorter side decides, so a vertical video is named like a wide one. */
   function qualityName(width, height) {
@@ -420,7 +422,9 @@
     row.appendChild(quality);
     row.appendChild(el("div", { color: "#bdc1c6", whiteSpace: "nowrap" }, resolution));
     row.appendChild(el("div", { color: "#9aa0a6", textAlign: "right", whiteSpace: "nowrap" }, formatBytes(option.sizeBytes) || "—"));
-    row.appendChild(downloadButton(onDownload));
+    const button = downloadButton(onDownload);
+    button.style.width = "100%";   // fills the fixed last column, so it keeps its width as its text changes
+    row.appendChild(button);
     return row;
   }
 

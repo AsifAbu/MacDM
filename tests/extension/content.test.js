@@ -624,3 +624,58 @@ test("clicking a quality's Download still sends exactly that quality's selector"
   assert.equal(request.audioOnly, true);
   assert.equal(buttons[1].textContent, "Added ✓");
 });
+
+// ---------- the heading row lines up with the rows ----------
+
+test("the heading row and every quality row use the very same column widths, with a fixed last column", async () => {
+  const { panel } = await openQualityList([
+    { label: "1080p", selector: "s1", sizeBytes: 9e7, audioOnly: false, width: 1920, height: 1080 },
+    { label: "Audio only", selector: "s2", sizeBytes: 8e6, audioOnly: true, detail: "AAC · 129 kbps" }
+  ]);
+  const heading = [...panel.querySelectorAll("div")].find((d) => d.children.length === 4 && /^Quality$/.test(d.children[0].textContent));
+  const rows = [...panel.querySelectorAll("button")].filter((b) => b.textContent === "Download").map((b) => b.parentElement);
+  assert.equal(rows.length, 2);
+
+  const columns = heading.style.gridTemplateColumns;
+  assert.ok(columns, "the heading has a column template");
+  assert.doesNotMatch(columns, /auto/, "no column sizes itself from its content, or the heading would drift from the rows");
+  for (const row of rows) assert.equal(row.style.gridTemplateColumns, columns);
+  assert.equal(heading.style.columnGap, rows[0].style.columnGap);
+});
+
+test("the heading's four cells sit over the four columns: Quality, Resolution, Size, then the Download column", async () => {
+  const { panel } = await openQualityList([{ label: "720p", selector: "s", sizeBytes: 3e7, audioOnly: false, width: 1280, height: 720 }]);
+  const heading = [...panel.querySelectorAll("div")].find((d) => d.children.length === 4 && /^Quality$/.test(d.children[0].textContent));
+  const [quality, resolution, size, last] = [...heading.children];
+  assert.equal(resolution.textContent, "Resolution");
+  assert.equal(size.textContent, "Size");
+  assert.equal(size.style.textAlign, "right", "the size heading is right-aligned like the sizes under it");
+  assert.equal(last.textContent, "", "the last column's heading is empty: it holds the buttons");
+  assert.equal(quality.textContent, "Quality");
+  const row = [...panel.querySelectorAll("button")].find((b) => b.textContent === "Download").parentElement;
+  assert.equal(row.children[3].style.width, "100%", "the button fills its fixed column");
+  assert.equal(row.children[2].style.textAlign, "right", "sizes are right-aligned under the Size heading");
+});
+
+test("the Download button keeps its column width after its text changes", async () => {
+  const { panel } = await openQualityList([{ label: "720p", selector: "s", sizeBytes: 3e7, audioOnly: false, width: 1280, height: 720 }]);
+  const button = [...panel.querySelectorAll("button")].find((b) => b.textContent === "Download");
+  const row = button.parentElement;
+  const before = row.style.gridTemplateColumns;
+  button.click();
+  await tick();
+  assert.equal(button.textContent, "Added ✓");
+  assert.equal(row.style.gridTemplateColumns, before);
+  assert.equal(button.style.width, "100%");
+});
+
+test("the Download buttons in the detected-media list are not stretched by the quality list's column fix", async () => {
+  const item = { url: "https://cdn.test/a.mp4", kind: "file", size: 9e8, contentType: "video/mp4", headers: {} };
+  const page = loadPage({ withVideo: false, detectedItems: [item], reply: { ok: false, error: "no page support" } });
+  await tick();
+  page.downloadButton.click();
+  await tick();
+  const button = [...page.panel.querySelectorAll("button")].find((b) => b.textContent === "Download");
+  assert.ok(button, "the detected file has a Download button");
+  assert.equal(button.style.width, "", "no forced width here: this list is a flex row, not the quality grid");
+});
