@@ -174,7 +174,7 @@
   bar.appendChild(barClose);
 
   const panel = el("div", {
-    position: "fixed", display: "none", width: "340px", maxHeight: "420px", overflowY: "auto",
+    position: "fixed", display: "none", width: "390px", maxHeight: "420px", overflowY: "auto",
     background: "#202124", color: "#e8eaed", borderRadius: "8px", padding: "12px",
     font: `13px ${FONT}`, boxShadow: "0 6px 24px rgba(0,0,0,.55)", boxSizing: "border-box"
   });
@@ -271,7 +271,7 @@
 
     const barRect = bar.getBoundingClientRect();
     const panelTop = barRect.bottom + 6 + panelOffset.y;
-    const panelLeft = Math.max(Math.min(barRect.right - 340, window.innerWidth - 350), 10) + panelOffset.x;
+    const panelLeft = Math.max(Math.min(barRect.right - 390, window.innerWidth - 400), 10) + panelOffset.x;
     panel.style.top = `${clamp(panelTop, 0, window.innerHeight - 40)}px`;
     panel.style.left = `${clamp(panelLeft, 0, window.innerWidth - 100)}px`;
   }
@@ -341,10 +341,8 @@
     return el("div", { fontWeight: "600", margin: "10px 0 6px", color: "#9aa0a6", fontSize: "11px", textTransform: "uppercase" }, text);
   }
 
-  function actionRow(label, detail, onDownload) {
-    const row = el("div", { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0", borderTop: "1px solid #3c4043" });
-    const text = el("div", { flex: "1", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, label);
-    if (detail) text.appendChild(el("span", { color: "#9aa0a6", marginLeft: "8px" }, detail));
+  /** The blue Download button: shows "Sending…", then "Added ✓" or "Failed" (with the reason as a tooltip). */
+  function downloadButton(onDownload) {
     const button = el("button", {
       border: "none", borderRadius: "4px", padding: "4px 10px", cursor: "pointer",
       background: "#1a73e8", color: "#fff", font: `600 12px ${FONT}`
@@ -358,8 +356,61 @@
         if (!reply.ok) { button.disabled = false; button.style.background = "#d93025"; }
       });
     });
+    return button;
+  }
+
+  function actionRow(label, detail, onDownload) {
+    const row = el("div", { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0", borderTop: "1px solid #3c4043" });
+    const text = el("div", { flex: "1", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, label);
+    if (detail) text.appendChild(el("span", { color: "#9aa0a6", marginLeft: "8px" }, detail));
     row.appendChild(text);
-    row.appendChild(button);
+    row.appendChild(downloadButton(onDownload));
+    return row;
+  }
+
+  // ---- the "Choose quality" list: quality name | resolution | size | Download ----
+
+  const QUALITY_COLUMNS = "minmax(78px, 1.2fr) 92px 62px auto";
+
+  /** A plain name for a picture size. The shorter side decides, so a vertical video is named like a wide one. */
+  function qualityName(width, height) {
+    const side = width && height ? Math.min(width, height) : height;
+    if (!side) return "";
+    if (side >= 4320) return "8K";
+    if (side >= 2160) return "4K";
+    if (side >= 1440) return "2K";
+    if (side >= 1080) return "Full HD";
+    if (side >= 720) return "HD";
+    if (side >= 480) return "SD";
+    return "Low";
+  }
+
+  /** The four parts of one quality row, from what MacDM sent. Older MacDM versions send no pixel size. */
+  function describeQuality(option) {
+    if (option.audioOnly) return { name: "Audio only", resolution: "—" };
+    const labelHeight = /^(\d+)p$/.exec(option.label || "");
+    const height = option.height || (labelHeight ? parseInt(labelHeight[1], 10) : 0);
+    const name = qualityName(option.width, height) || option.label;
+    if (option.width && option.height) return { name, resolution: `${option.width} × ${option.height}` };
+    return { name, resolution: labelHeight ? option.label : "—" };   // no pixel size known: the old "1080p" label
+  }
+
+  const GRID_ROW = { display: "grid", gridTemplateColumns: QUALITY_COLUMNS, columnGap: "8px", alignItems: "center" };
+
+  function qualityHeading() {
+    const cell = (text, align) => el("div", { textAlign: align || "left" }, text);
+    const row = el("div", { ...GRID_ROW, padding: "0 0 4px", color: "#9aa0a6", fontSize: "11px", textTransform: "uppercase" });
+    for (const node of [cell("Quality"), cell("Resolution"), cell("Size", "right"), cell("")]) row.appendChild(node);
+    return row;
+  }
+
+  function qualityRow(option, onDownload) {
+    const { name, resolution } = describeQuality(option);
+    const row = el("div", { ...GRID_ROW, padding: "6px 0", borderTop: "1px solid #3c4043" });
+    row.appendChild(el("div", { fontWeight: "600", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, name));
+    row.appendChild(el("div", { color: "#bdc1c6", whiteSpace: "nowrap" }, resolution));
+    row.appendChild(el("div", { color: "#9aa0a6", textAlign: "right", whiteSpace: "nowrap" }, formatBytes(option.sizeBytes) || "—"));
+    row.appendChild(downloadButton(onDownload));
     return row;
   }
 
@@ -458,8 +509,9 @@
           "ffmpeg not found: only qualities with built-in audio are listed. Install with: brew install ffmpeg"));
       }
       panel.appendChild(sectionTitle("Choose quality"));
+      panel.appendChild(qualityHeading());
       for (const option of formats.options) {
-        panel.appendChild(actionRow(option.label, formatBytes(option.sizeBytes), () => native({
+        panel.appendChild(qualityRow(option, () => native({
           action: "download_media",
           url: location.href,
           title: formats.title,

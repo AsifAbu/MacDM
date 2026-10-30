@@ -149,10 +149,15 @@ struct MediaFormatOption {
     let selector: String
     let sizeBytes: Int64?
     let audioOnly: Bool
+    /// Picture size in pixels, when the site says it. Only shown to the user; the download uses `selector`.
+    var width: Int? = nil
+    var height: Int? = nil
 
     var dictionary: [String: Any] {
         var dict: [String: Any] = ["label": label, "selector": selector, "audioOnly": audioOnly]
         if let sizeBytes { dict["sizeBytes"] = sizeBytes }
+        if let width { dict["width"] = width }
+        if let height { dict["height"] = height }
         return dict
     }
 }
@@ -347,7 +352,10 @@ enum MediaExtractor {
             let selector = canMerge
                 ? "bv*[height<=\(height)]+ba/b[height<=\(height)]"
                 : "b[height<=\(height)]/b"
-            options.append(MediaFormatOption(label: "\(height)p", selector: selector, sizeBytes: total, audioOnly: false))
+            // The widest picture offered at this height, so the list can show "1920 × 1080".
+            let width = videoFormats.filter { ($0["height"] as? Int) == height }.compactMap { $0["width"] as? Int }.max()
+            options.append(MediaFormatOption(label: "\(height)p", selector: selector, sizeBytes: total, audioOnly: false,
+                                             width: width, height: height))
         }
 
         let hasVideoOptions = !options.isEmpty

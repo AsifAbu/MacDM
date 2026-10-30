@@ -580,3 +580,43 @@ struct SignInTests {
         #expect(CookieFile.arguments(for: plain).isEmpty)
     }
 }
+
+// MARK: - Picture size shown in the quality list
+
+@Suite("Quality list details")
+struct QualityDetailsTests {
+    private let formats: [[String: Any]] = [
+        ["vcodec": "avc1", "acodec": "none", "height": 1080, "width": 1920, "filesize": 80_000_000],
+        ["vcodec": "avc1", "acodec": "none", "height": 1080, "width": 1888, "filesize": 70_000_000],
+        ["vcodec": "avc1", "acodec": "none", "height": 720, "width": 1280, "filesize": 30_000_000],
+        ["vcodec": "none", "acodec": "mp4a", "filesize": 5_000_000]
+    ]
+
+    @Test("each video quality carries its pixel size (the widest picture at that height); audio has none")
+    func pixelSizes() {
+        let options = MediaExtractor.buildInfo(from: ["title": "T", "formats": formats], canMerge: true).options
+        #expect(options.map(\.label) == ["1080p", "720p", "Audio only"])
+        #expect(options[0].width == 1920 && options[0].height == 1080)
+        #expect(options[1].width == 1280 && options[1].height == 720)
+        #expect(options[2].width == nil && options[2].height == nil)
+    }
+
+    @Test("the pixel size is sent to the extension, and only when it is known")
+    func sentToExtension() {
+        let options = MediaExtractor.buildInfo(from: ["title": "T", "formats": formats], canMerge: true).options
+        #expect(options[0].dictionary["width"] as? Int == 1920)
+        #expect(options[0].dictionary["height"] as? Int == 1080)
+        #expect(options[2].dictionary["width"] == nil && options[2].dictionary["height"] == nil)
+        let noWidth = MediaExtractor.buildInfo(from: ["formats": [["vcodec": "avc1", "acodec": "mp4a", "height": 480]]], canMerge: true).options[0]
+        #expect(noWidth.width == nil && noWidth.dictionary["width"] == nil && noWidth.dictionary["height"] as? Int == 480)
+    }
+
+    @Test("what gets downloaded is unchanged: the same selectors and sizes as before")
+    func downloadsUnchanged() {
+        let options = MediaExtractor.buildInfo(from: ["title": "T", "formats": formats], canMerge: true).options
+        #expect(options[0].selector == "bv*[height<=1080]+ba/b[height<=1080]")
+        #expect(options[0].sizeBytes == 85_000_000)           // the biggest 1080 video plus the audio
+        #expect(options[1].selector == "bv*[height<=720]+ba/b[height<=720]")
+        #expect(options[2].selector == "ba[ext=m4a]/ba/b" && options[2].audioOnly)
+    }
+}
