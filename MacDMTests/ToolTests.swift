@@ -620,3 +620,52 @@ struct QualityDetailsTests {
         #expect(options[2].selector == "ba[ext=m4a]/ba/b" && options[2].audioOnly)
     }
 }
+
+// MARK: - Audio quality shown under "Audio only"
+
+@Suite("Audio quality details")
+struct AudioDetailTests {
+    private func audio(_ ext: String, _ codec: String, abr: Double? = nil) -> [String: Any] {
+        var f: [String: Any] = ["vcodec": "none", "acodec": codec, "ext": ext]
+        if let abr { f["abr"] = abr }
+        return f
+    }
+
+    @Test("it describes the stream the download prefers: the best m4a (AAC), even if another is higher")
+    func prefersM4a() {
+        let streams = [audio("m4a", "mp4a.40.2", abr: 129.5), audio("webm", "opus", abr: 160.0), audio("m4a", "mp4a.40.5", abr: 48.0)]
+        #expect(MediaExtractor.audioDetail(of: streams) == "AAC · 130 kbps")
+    }
+
+    @Test("with no m4a it describes the best audio there is")
+    func bestOther() {
+        #expect(MediaExtractor.audioDetail(of: [audio("webm", "opus", abr: 50), audio("webm", "opus", abr: 160)]) == "Opus · 160 kbps")
+        #expect(MediaExtractor.audioDetail(of: [audio("mp3", "mp3", abr: 320)]) == "MP3 · 320 kbps")
+    }
+
+    @Test("lossless formats say lossless instead of a bitrate")
+    func lossless() {
+        #expect(MediaExtractor.audioDetail(of: [audio("flac", "flac", abr: 900)]) == "FLAC · lossless")
+    }
+
+    @Test("a missing bitrate shows just the codec, and nothing known shows nothing")
+    func partial() {
+        #expect(MediaExtractor.audioDetail(of: [audio("m4a", "mp4a.40.2")]) == "AAC")
+        #expect(MediaExtractor.audioDetail(of: [audio("ogg", "unknowncodec")]) == "OGG")
+        #expect(MediaExtractor.audioDetail(of: [["vcodec": "none", "acodec": "mystery"]]) == nil)
+        #expect(MediaExtractor.audioDetail(of: []) == nil)
+    }
+
+    @Test("the audio option carries the detail to the extension, video options do not, and downloads are unchanged")
+    func inTheOption() {
+        let formats: [[String: Any]] = [
+            ["vcodec": "avc1", "acodec": "none", "height": 720, "width": 1280, "filesize": 30_000_000],
+            audio("m4a", "mp4a.40.2", abr: 129.5)
+        ]
+        let options = MediaExtractor.buildInfo(from: ["title": "T", "formats": formats], canMerge: true).options
+        #expect(options.map(\.label) == ["720p", "Audio only"])
+        #expect(options[1].dictionary["detail"] as? String == "AAC · 130 kbps")
+        #expect(options[0].dictionary["detail"] == nil)
+        #expect(options[1].selector == "ba[ext=m4a]/ba/b" && options[1].audioOnly)
+    }
+}

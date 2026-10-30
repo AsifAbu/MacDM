@@ -152,12 +152,15 @@ struct MediaFormatOption {
     /// Picture size in pixels, when the site says it. Only shown to the user; the download uses `selector`.
     var width: Int? = nil
     var height: Int? = nil
+    /// A short description shown under the name, for audio: "AAC · 129 kbps", "FLAC · lossless".
+    var detail: String? = nil
 
     var dictionary: [String: Any] {
         var dict: [String: Any] = ["label": label, "selector": selector, "audioOnly": audioOnly]
         if let sizeBytes { dict["sizeBytes"] = sizeBytes }
         if let width { dict["width"] = width }
         if let height { dict["height"] = height }
+        if let detail { dict["detail"] = detail }
         return dict
     }
 }
@@ -318,6 +321,30 @@ enum MediaExtractor {
         return buildInfo(from: json)
     }
 
+    /// What the "Audio only" download will fetch, in words: the codec and bitrate of the stream it prefers
+    /// (the best m4a, otherwise the best audio there is). Nil when the site says nothing about it.
+    static func audioDetail(of audioStreams: [[String: Any]]) -> String? {
+        func bitrate(_ f: [String: Any]) -> Double {
+            (f["abr"] as? NSNumber)?.doubleValue ?? (f["tbr"] as? NSNumber)?.doubleValue ?? 0
+        }
+        let m4a = audioStreams.filter { ($0["ext"] as? String) == "m4a" }
+        let pool = m4a.isEmpty ? audioStreams : m4a
+        guard let best = pool.max(by: { bitrate($0) < bitrate($1) }) else { return nil }
+
+        let codec = ((best["acodec"] as? String) ?? "").lowercased()
+        let ext = ((best["ext"] as? String) ?? (best["audio_ext"] as? String) ?? "").lowercased()
+        let names: [(prefix: String, name: String)] = [("mp4a", "AAC"), ("opus", "Opus"), ("flac", "FLAC"), ("alac", "ALAC"),
+                                                       ("mp3", "MP3"), ("vorbis", "Vorbis"), ("ec-3", "E-AC-3"), ("ac-3", "AC-3")]
+        let name = names.first(where: { codec.hasPrefix($0.prefix) })?.name
+            ?? (["m4a", "aac"].contains(ext) ? "AAC" : (ext.isEmpty || ext == "none" ? nil : ext.uppercased()))
+
+        var parts: [String] = []
+        if let name { parts.append(name) }
+        if ["FLAC", "ALAC"].contains(name ?? "") { parts.append("lossless") }
+        else if bitrate(best) >= 1 { parts.append("\(Int(bitrate(best).rounded())) kbps") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     /// Condenses yt-dlp's `-J` output into quality choices. `canMerge` says whether
     /// ffmpeg is available to join separate video and audio streams.
     static func buildInfo(from json: [String: Any], canMerge: Bool = MediaTools.hasFFmpeg) -> MediaInfo {
@@ -363,7 +390,8 @@ enum MediaExtractor {
         // "Audio only" needs a real audio-only stream; a source of ready-made video files has none.
         if formats.contains(where: isAudioOnly) {
             let audioSize = bestAudioSize > 0 ? bestAudioSize : nil
-            options.append(MediaFormatOption(label: "Audio only", selector: "ba[ext=m4a]/ba/b", sizeBytes: audioSize, audioOnly: true))
+            options.append(MediaFormatOption(label: "Audio only", selector: "ba[ext=m4a]/ba/b", sizeBytes: audioSize, audioOnly: true,
+                                             detail: audioDetail(of: formats.filter(isAudioOnly))))
         }
 
         // Sources that expose no sizes (direct links, some HLS, sites that don't describe their formats):

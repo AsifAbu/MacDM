@@ -385,14 +385,21 @@
     return "Low";
   }
 
-  /** The four parts of one quality row, from what MacDM sent. Older MacDM versions send no pixel size. */
+  /**
+   * The parts of one quality row, from what MacDM sent: the name, a small grey line under it (the height like
+   * "1080p" for video, the codec and bitrate for audio), and the pixel size. Older MacDM versions send no pixel
+   * size, and still get the name and the "1080p" line.
+   */
   function describeQuality(option) {
-    if (option.audioOnly) return { name: "Audio only", resolution: "—" };
+    if (option.audioOnly) return { name: "Audio only", sub: option.detail || "", resolution: "—" };
     const labelHeight = /^(\d+)p$/.exec(option.label || "");
     const height = option.height || (labelHeight ? parseInt(labelHeight[1], 10) : 0);
     const name = qualityName(option.width, height) || option.label;
-    if (option.width && option.height) return { name, resolution: `${option.width} × ${option.height}` };
-    return { name, resolution: labelHeight ? option.label : "—" };   // no pixel size known: the old "1080p" label
+    // The shorter side, as for the name, so a vertical 1080 × 1920 video reads "Full HD" and "1080p".
+    const shortSide = option.width && option.height ? Math.min(option.width, option.height) : height;
+    const sub = shortSide ? `${shortSide}p` : "";
+    const resolution = option.width && option.height ? `${option.width} × ${option.height}` : "—";
+    return { name, sub, resolution };
   }
 
   const GRID_ROW = { display: "grid", gridTemplateColumns: QUALITY_COLUMNS, columnGap: "8px", alignItems: "center" };
@@ -405,9 +412,12 @@
   }
 
   function qualityRow(option, onDownload) {
-    const { name, resolution } = describeQuality(option);
+    const { name, sub, resolution } = describeQuality(option);
     const row = el("div", { ...GRID_ROW, padding: "6px 0", borderTop: "1px solid #3c4043" });
-    row.appendChild(el("div", { fontWeight: "600", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, name));
+    const quality = el("div", { minWidth: "0" });
+    quality.appendChild(el("div", { fontWeight: "600", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, name));
+    if (sub) quality.appendChild(el("div", { color: "#9aa0a6", fontSize: "11px", marginTop: "1px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, sub));
+    row.appendChild(quality);
     row.appendChild(el("div", { color: "#bdc1c6", whiteSpace: "nowrap" }, resolution));
     row.appendChild(el("div", { color: "#9aa0a6", textAlign: "right", whiteSpace: "nowrap" }, formatBytes(option.sizeBytes) || "—"));
     row.appendChild(downloadButton(onDownload));

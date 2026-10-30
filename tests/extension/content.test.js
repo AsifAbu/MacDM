@@ -521,8 +521,9 @@ test("without a page title or a known type, the link's own name is used rather t
   assert.equal(noType.sentDownload.suggestedFileName, "92af9fb0-82fb501e-4d796360-c5844d51");
 });
 
-// ---------- the "Choose quality" list: quality | resolution | size | Download ----------
+// ---------- the "Choose quality" list: quality (+ grey detail) | resolution | size | Download ----------
 
+// Each row comes back as [name, grey line, resolution, size, button].
 async function openQualityList(options) {
   const reply = { ok: true, title: "Clip", duration: 65, ffmpeg: true, options };
   const page = loadPage({ reply });
@@ -530,21 +531,49 @@ async function openQualityList(options) {
   await tick();
   const rows = [...page.panel.querySelectorAll("button")]
     .filter((b) => b.textContent === "Download")
-    .map((b) => [...b.parentElement.children].map((cell) => cell.textContent));
+    .map((b) => {
+      const [quality, ...rest] = [...b.parentElement.children];
+      const [name, sub] = [...quality.children].map((part) => part.textContent);
+      return [name, sub || "", ...rest.map((cell) => cell.textContent)];
+    });
   return { ...page, rows };
 }
 
-test("each quality row has four columns: name, pixel size, file size and a Download button", async () => {
+test("each quality row shows a name with its height in grey under it, then pixel size, file size and Download", async () => {
   const { rows } = await openQualityList([
     { label: "1080p", selector: "s1", sizeBytes: 90_400_000, audioOnly: false, width: 1920, height: 1080 },
     { label: "720p", selector: "s2", sizeBytes: 33_000_000, audioOnly: false, width: 1280, height: 720 },
-    { label: "Audio only", selector: "s3", sizeBytes: 8_500_000, audioOnly: true }
+    { label: "360p", selector: "s3", sizeBytes: 20_000_000, audioOnly: false, width: 640, height: 360 },
+    { label: "144p", selector: "s4", sizeBytes: 11_000_000, audioOnly: false, width: 256, height: 144 }
   ]);
   assert.deepEqual(rows, [
-    ["Full HD", "1920 × 1080", "86.2 MB", "Download"],
-    ["HD", "1280 × 720", "31.5 MB", "Download"],
-    ["Audio only", "—", "8.1 MB", "Download"]
+    ["Full HD", "1080p", "1920 × 1080", "86.2 MB", "Download"],
+    ["HD", "720p", "1280 × 720", "31.5 MB", "Download"],
+    ["Low", "360p", "640 × 360", "19.1 MB", "Download"],
+    ["Low", "144p", "256 × 144", "10.5 MB", "Download"]
   ]);
+});
+
+test("the grey line is small and grey, under the name", async () => {
+  const { panel } = await openQualityList([{ label: "1080p", selector: "s", sizeBytes: 1e8, audioOnly: false, width: 1920, height: 1080 }]);
+  const button = [...panel.querySelectorAll("button")].find((b) => b.textContent === "Download");
+  const [name, sub] = [...button.parentElement.children[0].children];
+  assert.equal(name.textContent, "Full HD");
+  assert.equal(sub.textContent, "1080p");
+  assert.equal(sub.style.color, "rgb(154, 160, 166)");
+  assert.equal(sub.style.fontSize, "11px");
+});
+
+test("the audio row shows the audio quality under its name", async () => {
+  const { rows } = await openQualityList([
+    { label: "Audio only", selector: "a1", sizeBytes: 8_500_000, audioOnly: true, detail: "AAC · 129 kbps" }
+  ]);
+  assert.deepEqual(rows[0], ["Audio only", "AAC · 129 kbps", "—", "8.1 MB", "Download"]);
+});
+
+test("an audio row with no known quality has no grey line, and nothing is invented", async () => {
+  const { rows } = await openQualityList([{ label: "Audio only", selector: "a", sizeBytes: 8_500_000, audioOnly: true }]);
+  assert.deepEqual(rows[0], ["Audio only", "", "—", "8.1 MB", "Download"]);
 });
 
 test("the list has a heading row: Quality, Resolution, Size", async () => {
@@ -561,28 +590,30 @@ test("names follow the shorter side, so a vertical video is named like a wide on
     label: `${height}p`, selector: `s${i}`, sizeBytes: 1e7, audioOnly: false, width, height
   })));
   assert.deepEqual(rows.map((r) => r[0]), sizes.map((s) => s[2]));
-  assert.equal(rows[8][1], "1080 × 1920", "the real pixel size is shown as MacDM sent it");
+  assert.equal(rows[8][2], "1080 × 1920", "the real pixel size is shown as MacDM sent it");
+  assert.equal(rows[8][1], "1080p", "the grey line uses the shorter side too, so it matches the name");
+  assert.equal(rows[9][1], "720p");
 });
 
 test("a size MacDM doesn't know shows a dash, not blank", async () => {
   const { rows } = await openQualityList([{ label: "720p", selector: "s", audioOnly: false, width: 1280, height: 720 }]);
-  assert.deepEqual(rows[0], ["HD", "1280 × 720", "—", "Download"]);
+  assert.deepEqual(rows[0], ["HD", "720p", "1280 × 720", "—", "Download"]);
 });
 
-test("an older MacDM that sends no pixel size still shows a name and the old label", async () => {
+test("an older MacDM that sends no pixel size still shows the name and the height", async () => {
   const { rows } = await openQualityList([{ label: "1080p", selector: "s", sizeBytes: 5242880, audioOnly: false }]);
-  assert.deepEqual(rows[0], ["Full HD", "1080p", "5.0 MB", "Download"]);
+  assert.deepEqual(rows[0], ["Full HD", "1080p", "—", "5.0 MB", "Download"]);
 });
 
-test("Best available has no resolution to show", async () => {
+test("Best available has no resolution or grey line to show", async () => {
   const { rows } = await openQualityList([{ label: "Best available", selector: "b/bv*+ba", audioOnly: false }]);
-  assert.deepEqual(rows[0], ["Best available", "—", "—", "Download"]);
+  assert.deepEqual(rows[0], ["Best available", "", "—", "—", "Download"]);
 });
 
 test("clicking a quality's Download still sends exactly that quality's selector", async () => {
   const { panel, sent } = await openQualityList([
     { label: "1080p", selector: "bv*[height<=1080]+ba", sizeBytes: 1e8, audioOnly: false, width: 1920, height: 1080 },
-    { label: "Audio only", selector: "ba[ext=m4a]/ba/b", sizeBytes: 8e6, audioOnly: true }
+    { label: "Audio only", selector: "ba[ext=m4a]/ba/b", sizeBytes: 8e6, audioOnly: true, detail: "AAC · 129 kbps" }
   ]);
   const buttons = [...panel.querySelectorAll("button")].filter((b) => b.textContent === "Download");
   buttons[1].click();
