@@ -66,7 +66,7 @@ see it, and sends your browser's cookies only to that same site.
 
 In Chrome with the MacDM extension, MacDM watches for video the way a download manager like IDM does: when a page
 plays a video, **even inside an embedded player**, a **Download this video** bar appears on it. Click it, choose a
-quality (or pick a detected file or stream), and MacDM does the rest. MacDM sends your browser's own cookies and
+quality (or pick a detected file or stream), and MacDM does the rest. Each quality row shows its name (4K, Full HD, HD, SD…) with the height in small grey under it (1080p, 720p…), the picture size in pixels, the file size, and a **Download** button. The **Audio only** row shows the audio quality, for example `AAC · 129 kbps`. MacDM sends your browser's own cookies and
 referrer with the download, so sites that check them accept it. The bar has a small **✕** to hide it and can be dragged
 anywhere. Without the extension, paste the page address into **Add URL**.
 

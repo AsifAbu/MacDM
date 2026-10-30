@@ -124,3 +124,8 @@ data (`scripts/check-privacy.sh`), and writes `dist/MacDM.dmg`.
   videos both use it (a video finishes inside its hidden folder, then is moved in). A detected file whose link has no
   file ending is named by the page script (`suggestedName` in `content.js`): the page title plus the ending from its
   content type. Tests: `FileNamingTests` and the "naming a detected file" tests in `content.test.js`.
+- Quality list (`content.js`: `describeQuality`, `qualityName`, `qualityRow`): four fixed-width grid columns shared by the
+  heading and every row (an `auto` column would shrink in the heading and misalign it). The app sends each option's
+  `width`, `height` and, for audio, `detail` (`MediaExtractor.audioDetail`); these are display-only, the download uses
+  the unchanged `selector`. Names use the shorter side (4K, 2K, Full HD, HD, SD, Low). Tests: `QualityDetailsTests`,
+  `AudioDetailTests`, and the "Choose quality" tests in `content.test.js`.
